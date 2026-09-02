@@ -5,6 +5,12 @@
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
 
+// Shown next to the page title. Bump this together with the ?v= number on the
+// script tag in index.html, so "which build is this browser actually running?"
+// is answerable at a glance instead of from the console - a stale cached copy
+// is otherwise indistinguishable from a bug in the current one.
+const BUILD = 'v6';
+
 let invoices = []; // one entry per parsed PDF
 let sortCol = 'periodFromKey', sortDir = 1;
 let lang = 'en';
@@ -90,7 +96,8 @@ function t() { return I18N[lang]; }
 
 function applyStaticTranslations() {
   const tr = t();
-  document.getElementById('titleText').textContent = tr.title;
+  document.getElementById('titleText').firstChild.nodeValue = tr.title + ' ';
+  document.getElementById('buildTag').textContent = BUILD;
   document.getElementById('subtitleText').textContent = tr.subtitle;
   document.getElementById('dropMain').textContent = tr.dropMain;
   document.getElementById('dropSub').textContent = tr.dropSub;

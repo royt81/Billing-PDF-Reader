@@ -164,12 +164,22 @@ async function extractText(data) {
   return normalizeExtractedText(full);
 }
 
+const LIGATURES = { '\uFB00': 'ff', '\uFB01': 'fi', '\uFB02': 'fl', '\uFB03': 'ffi', '\uFB04': 'ffl', '\uFB05': 'st', '\uFB06': 'st' };
+
 // Some invoice templates split numbers and accented letters across separate
 // PDF text runs (e.g. a font ligature for "fl", or "ä" as its own run), which
 // come out of extractText() as "1 . 179 , 29" or "M ä rz" once items are
 // joined with spaces. Collapse that spacing back together so the regexes
 // below can match regardless of which template generated the PDF.
 function normalizeExtractedText(text) {
+  // Invoices generated from mid-2026 on encode "ff"/"fi"/"fl"/"ffi" as single
+  // ligature glyphs, so the extracted text literally reads "E\uFB00ektiver
+  // Arbeitspreis" and "Monatsau\uFB02istung". Every letter-based pattern below
+  // (and in parseMonthlyWorkPrices) misses those, while the number-based month
+  // rows still match - which is exactly how a month can show up with its
+  // consumption and costs but no price. Fold the ligatures back to plain
+  // letters first, and turn non-breaking spaces into ordinary ones.
+  text = text.replace(/[\uFB00-\uFB06]/g, ch => LIGATURES[ch] || ch).replace(/\u00a0/g, ' ');
   let prev;
   do {
     prev = text;
@@ -259,10 +269,21 @@ function parseMonthlyWorkPrices(text) {
   let m;
   while ((m = re.exec(text)) !== null) {
     const key = m[3] + m[2];
-    const priceNet = pn(m[4]);
+    const priceNet = pn(m[4]); // net in the first two templates; see below
     if (priceNet === null) continue;
-    // The amounts row sits a little further into the same month's section.
+    // The summary row of that month's "Arbeitspreis im Detail" table sits a
+    // little further on, and its shape tells the templates apart:
+    //   "… 27,16 ct/kWh  32,32 ct/kWh  183,06 €"   -> net and gross ct/kWh printed
+    //      side by side (Stromrechnung template). The dated line above quotes the
+    //      GROSS price there, so taking it as net would apply VAT twice.
+    //   "… 22,46 ct/kWh  288,75 €  343,61 €"       -> one net ct/kWh plus the net
+    //      and gross amounts, whose ratio is the VAT actually applied.
     const after = text.slice(m.index, m.index + 8000);
+    const bothPrices = after.match(/Effektiver\s*Arbeitspreis\s+([\d.,]+)\s*ct\s*\/\s*kWh\s+([\d.,]+)\s*ct\s*\/\s*kWh/);
+    if (bothPrices) {
+      byKey.set(key, { priceNet: pn(bothPrices[1]), priceGross: pn(bothPrices[2]) });
+      continue;
+    }
     const amt = after.match(/Effektiver\s*Arbeitspreis\s+[\d.,]+\s*ct\s*\/\s*kWh\s+([\d.,-]+)\s*€\s+([\d.,-]+)\s*€/);
     const netAmt   = amt ? pn(amt[1]) : null;
     const grossAmt = amt ? pn(amt[2]) : null;
@@ -272,12 +293,59 @@ function parseMonthlyWorkPrices(text) {
   return byKey;
 }
 
+// The "Stromrechnung <Datum>" template (rabot.home, mid-2026 onwards) has no
+// "Monatsauflistung" table at all: each month gets its own "Stromrechnung im
+// Detail <Monat> <Jahr>" section, while the per-month costs and Abschläge live
+// in two summary tables near the front. This rebuilds the same monthly rows the
+// other templates hand over ready-made, so everything downstream is unchanged.
+function isStromrechnungTemplate(text) {
+  return /Stromrechnung im Detail/.test(text) && !/Monatsauflistung/.test(text);
+}
+
+function parseStromrechnungMonths(text) {
+  const rows = [];
+  const re = /Effektiver\s*Arbeitspreis\s+(\d{2})\.(\d{2})\.(\d{4})\s*[-–—]\s*([\d.]+)\s+([\d.,]+)\s*kWh/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const monthNum  = parseInt(m[2], 10);
+    const monthName = MONTHS_DE[monthNum - 1];
+    if (!monthName) continue;
+    const year  = m[3];
+    const month = loosePattern(monthName) + '\\s+' + year;
+    // "Kosten für Juni 2026 (brutto) … 198,35 €" - the label and the amount are
+    // separated by a sentence, so anything up to the first € is skipped.
+    const kostenM   = text.match(new RegExp('Kosten\\s+für\\s+' + month + '\\s*\\(brutto\\)[^€]*?([\\d.,-]+)\\s*€'));
+    // "Abschlag Juni 2026 01.06.2026 444,70 €" - the due date in between keeps
+    // this from matching the "Abschläge: Juni 2026 - Juli 2026" summary line.
+    const abschlagM = text.match(new RegExp('Abschlag\\s+' + month + '\\s+[\\d.]+\\s+([\\d.,-]+)\\s*€'));
+    const kosten   = kostenM ? pn(kostenM[1]) : null;
+    // Abschläge are printed positive here but negative in the Monatsauflistung
+    // of the other templates; normalise so one column means one thing.
+    const abschlag = abschlagM ? -Math.abs(pn(abschlagM[1])) : null;
+    rows.push({
+      key: year + String(monthNum).padStart(2, '0'),
+      monthLabel: monthName + ' ' + year,
+      verbrauch: pn(m[5]),
+      kosten,
+      abschlag,
+      // Not printed as its own column in this template - it is the same
+      // arithmetic the other templates' Verrechnung column already shows.
+      verrechnung: kosten === null ? null : kosten + (abschlag || 0),
+      periodFrom: m[1] + '.' + m[2] + '.' + year,
+      periodTo: m[4],
+    });
+  }
+  return rows.sort((a, b) => a.key.localeCompare(b.key));
+}
+
 function parseInvoice(text, fileName) {
   const get = (re) => { const m = text.match(re); return m ? m[1].trim() : ''; };
 
   // Two known templates differ in wording: "Ihre Abrechnung im Detail für X" (newer) vs
   // "Abrechnung Stromlieferung für X" (older) - both end in "... Kundennummer".
-  const month       = get(/(?:Ihre Abrechnung im Detail für|Abrechnung Stromlieferung für)\s+(.+?)\s+Kundennummer/);
+  // \s* rather than \s+ after "für": in the 2026 PDFs the heading comes out of
+  // text extraction as "…im Detail fürApril 2026", with no space at all.
+  let month         = get(/(?:Ihre Abrechnung im Detail für|Abrechnung Stromlieferung für)\s*(.+?)\s+Kundennummer/);
   const kundennummer = get(/Kundennummer:\s*(\S+)/);
   const vertrag     = get(/Vertragsnummer:\s*(\S+)/);
   const rechnungRef = get(/Rechnungsnummerref:\s*(\S+)/);
@@ -287,27 +355,55 @@ function parseInvoice(text, fileName) {
   const name        = get(/Guten Tag\s+(.+?),/);
 
   const per = text.match(/Zeitraum vom\s+([\d.]+)\s+bis\s+([\d.]+)/);
-  const periodFrom = per ? per[1] : '';
-  const periodTo   = per ? per[2] : '';
+  let periodFrom = per ? per[1] : '';
+  let periodTo   = per ? per[2] : '';
 
   // Two known templates differ in wording ("Ihr Verbrauch" vs "Verbrauch", label before/after
   // the amount, with/without parentheses) - these patterns accept both variants.
   const verbrauch = pn(get(/(?:Ihr\s+)?Verbrauch\s+([\d.,]+)\s*kWh/));
-  const kosten    = pn(get(/(?:Ihre\s+)?Kosten brutto\s+([\d.,-]+)\s*€/));
-  const abschlag  = pn(get(/Abschlagszahlungen brutto\s*(?:\(?bereits in Rechnung gestellt\)?\s*)?([\d.,-]+)\s*€/));
+  let kosten      = pn(get(/(?:Ihre\s+)?Kosten brutto\s+([\d.,-]+)\s*€/));
+  // The note after the label varies by template - "(bereits bezahlt)",
+  // "(bereits in Rechnung gestellt)" and, in 2026, the same words without any
+  // brackets at all - so everything up to the amount itself is skipped. The
+  // character class stops at a digit or minus, so it can never step over one
+  // number to reach another.
+  let abschlag    = pn(get(/Abschlagszahlungen brutto\s*[^\d€-]*([\d.,-]+)\s*€/));
 
   const end = text.match(/(?:Ihr\s+)?Rechnungsbetrag brutto\s*\(?(Guthaben|Nachzahlung)?\)?\s*([\d.,-]+)\s*€\s*\(?(Guthaben|Nachzahlung)?\)?/);
-  const endLabel  = end ? (end[1] || end[3] || '') : '';
-  const endAmount = end ? pn(end[2]) : null;
+  let endLabel  = end ? (end[1] || end[3] || '') : '';
+  let endAmount = end ? pn(end[2]) : null;
 
   const inv = text.match(/Rechnungsnummer\s+(\S+)\s+vom\s+([\d.]+)/);
   const invNumber = inv ? inv[1] : rechnungRef;
   const invDate   = inv ? inv[2] : '';
 
+  const stromrechnung = isStromrechnungTemplate(text);
+  const monthly = stromrechnung ? parseStromrechnungMonths(text) : parseMonthlyTable(text);
+
+  if (stromrechnung && monthly.length) {
+    // None of the summary figures above exist in this template: there is no
+    // "Zeitraum vom … bis …" line, no combined "Kosten brutto" and no
+    // "Abschlagszahlungen brutto". Each is the sum of the months it bills,
+    // which reconciles exactly with the totals the invoice does print.
+    const last = monthly[monthly.length - 1];
+    month      = monthly.length === 1 ? monthly[0].monthLabel : monthly[0].monthLabel + ' - ' + last.monthLabel;
+    periodFrom = monthly[0].periodFrom;
+    periodTo   = last.periodTo;
+    kosten     = monthly.reduce((sum, r) => sum + (r.kosten || 0), 0);
+    abschlag   = monthly.reduce((sum, r) => sum + (r.abschlag || 0), 0);
+    // "Ergibt eine Gutschrift von … 129,15 €" replaces "Rechnungsbetrag brutto".
+    // A Gutschrift is stored negative, matching how the other templates print
+    // a Guthaben, so the KPI colouring and the totals keep working.
+    const closing = text.match(/Ergibt eine\s+(Gutschrift|Nachzahlung)\s+von[^€]*?([\d.,-]+)\s*€/);
+    if (closing) {
+      endLabel  = closing[1] === 'Gutschrift' ? 'Guthaben' : 'Nachzahlung';
+      endAmount = endLabel === 'Guthaben' ? -Math.abs(pn(closing[2])) : Math.abs(pn(closing[2]));
+    }
+  }
+
   // Average price per kWh (costs brutto / consumption), in ct/kWh
   const pricePerKwh = (kosten !== null && verbrauch) ? (kosten * 100 / verbrauch) : null;
 
-  const monthly = parseMonthlyTable(text);
   // Months listed in the Monatsauflistung but without their own detail section
   // (or from a template that omits it) keep a null price rather than a guess.
   const workPrices = parseMonthlyWorkPrices(text);

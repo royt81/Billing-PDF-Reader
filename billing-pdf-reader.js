@@ -46,7 +46,7 @@ const I18N = {
       from: 'From', to: 'To', all: 'All', viewPdf: 'View PDF', downloadPdf: 'Download PDF',
       noData: 'No monthly tables were found in the uploaded PDF(s).',
       kpi: { months: 'Months in Range', consumption: 'Consumption', costs: 'Costs (brutto)', abschlag: 'Abschläge', net: 'Net Verrechnung' },
-      cols: { month: 'Month', verbrauch: 'Consumption (kWh)', kosten: 'Costs brutto (€)', abschlag: 'Abschlag (€)', verrechnung: 'Verrechnung (€)' },
+      cols: { month: 'Month', verbrauch: 'Consumption (kWh)', preisNet: 'Work price net (ct/kWh)', preisGross: 'Work price gross (ct/kWh)', kosten: 'Costs brutto (€)', abschlag: 'Abschlag (€)', verrechnung: 'Verrechnung (€)' },
     },
   },
   de: {
@@ -81,7 +81,7 @@ const I18N = {
       from: 'Von', to: 'Bis', all: 'Alle', viewPdf: 'PDF anzeigen', downloadPdf: 'Als PDF herunterladen',
       noData: 'In den hochgeladenen PDF(s) wurden keine Monatstabellen gefunden.',
       kpi: { months: 'Monate im Zeitraum', consumption: 'Verbrauch', costs: 'Kosten (brutto)', abschlag: 'Abschläge', net: 'Saldo Verrechnung' },
-      cols: { month: 'Monat', verbrauch: 'Verbrauch (kWh)', kosten: 'Abrechnung (€)', abschlag: 'Abschlag (€)', verrechnung: 'Verrechnung (€)' },
+      cols: { month: 'Monat', verbrauch: 'Verbrauch (kWh)', preisNet: 'Arbeitspreis netto (ct/kWh)', preisGross: 'Arbeitspreis brutto (ct/kWh)', kosten: 'Abrechnung (€)', abschlag: 'Abschlag (€)', verrechnung: 'Verrechnung (€)' },
     },
   },
 };
@@ -202,6 +202,7 @@ function fmt(n) {
 // on its own, not just via the column header.
 function fmtKwh(n) { return n === null || n === undefined ? '' : fmt(n) + ' kWh'; }
 function fmtEur(n) { return n === null || n === undefined ? '' : fmt(n) + ' €'; }
+function fmtCt(n) { return n === null || n === undefined ? '' : fmt(n) + ' ct/kWh'; }
 function dateKey(d) {
   const m = (d || '').match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   return m ? m[3] + m[2] + m[1] : '';
@@ -227,6 +228,36 @@ function parseMonthlyTable(text) {
     });
   }
   return rows;
+}
+
+// Per-month effective work price ("Effektiver Arbeitspreis"), read from the
+// per-month "Ihre Stromrechnung im Detail für <Monat>" sections. Two lines
+// carry it and both are used:
+//   "Effektiver Arbeitspreis 01.02.2024 - 29.02.2024 1.285,53 kWh 22,46ct/kWh 288,75 €"
+//     -> the month (from the period start date) and the net price as printed.
+//   "Effektiver Arbeitspreis 22,46ct/kWh 288,75€ 343,61€"  (in "Arbeitspreis im Detail")
+//     -> the net and gross amounts for that same month; their ratio is the VAT
+//        actually applied, so the gross ct/kWh follows the invoice rather than
+//        assuming 19%. VAT_FALLBACK is used only if that row is missing.
+// Both known templates word these lines identically, so one pass covers both.
+const VAT_FALLBACK = 1.19;
+function parseMonthlyWorkPrices(text) {
+  const byKey = new Map();
+  const re = /Effektiver\s*Arbeitspreis\s+(\d{2})\.(\d{2})\.(\d{4})\s*[-–—]\s*[\d.]+\s+[\d.,]+\s*kWh\s+([\d.,]+)\s*ct\s*\/\s*kWh/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const key = m[3] + m[2];
+    const priceNet = pn(m[4]);
+    if (priceNet === null) continue;
+    // The amounts row sits a little further into the same month's section.
+    const after = text.slice(m.index, m.index + 8000);
+    const amt = after.match(/Effektiver\s*Arbeitspreis\s+[\d.,]+\s*ct\s*\/\s*kWh\s+([\d.,-]+)\s*€\s+([\d.,-]+)\s*€/);
+    const netAmt   = amt ? pn(amt[1]) : null;
+    const grossAmt = amt ? pn(amt[2]) : null;
+    const factor = (netAmt && grossAmt) ? grossAmt / netAmt : VAT_FALLBACK;
+    byKey.set(key, { priceNet, priceGross: priceNet * factor });
+  }
+  return byKey;
 }
 
 function parseInvoice(text, fileName) {
@@ -265,6 +296,14 @@ function parseInvoice(text, fileName) {
   const pricePerKwh = (kosten !== null && verbrauch) ? (kosten * 100 / verbrauch) : null;
 
   const monthly = parseMonthlyTable(text);
+  // Months listed in the Monatsauflistung but without their own detail section
+  // (or from a template that omits it) keep a null price rather than a guess.
+  const workPrices = parseMonthlyWorkPrices(text);
+  monthly.forEach(row => {
+    const p = workPrices.get(row.key);
+    row.priceNet   = p ? p.priceNet : null;
+    row.priceGross = p ? p.priceGross : null;
+  });
 
   return {
     fileName, month, kundennummer, vertrag, rechnungRef, zaehler, malo, tarif, name,
@@ -487,14 +526,30 @@ function renderMonthlyBreakdown() {
     "<div class='kpi ok'><div class='label'>" + k.abschlag + "</div><div class='value' style='font-size:1.1rem'>" + fmt(Math.abs(tA)) + " €</div></div>" +
     "<div class='kpi " + (tR < -0.005 ? 'credit-val' : tR > 0.005 ? 'debt' : 'ok') + "'><div class='label'>" + k.net + "</div><div class='value' style='font-size:1.1rem'>" + fmt(tR) + " €</div></div>";
 
+  // A price is an average, not a sum, so the TOTAL row weights each month's
+  // price by that month's consumption. Months with no parsed price are left
+  // out of both sides of the average instead of counting as zero.
+  const weightedPrice = (field) => {
+    let num = 0, den = 0;
+    filtered.forEach(r => {
+      if (r[field] !== null && r[field] !== undefined && r.verbrauch) { num += r[field] * r.verbrauch; den += r.verbrauch; }
+    });
+    return den ? num / den : null;
+  };
+  const tPn = weightedPrice('priceNet');
+  const tPg = weightedPrice('priceGross');
+
   const c = tr.cols;
-  const thead = "<tr><th>" + c.month + "</th><th class='num'>" + c.verbrauch + "</th><th class='num'>" + c.kosten +
+  const thead = "<tr><th>" + c.month + "</th><th class='num'>" + c.verbrauch + "</th><th class='num'>" + c.preisNet +
+    "</th><th class='num'>" + c.preisGross + "</th><th class='num'>" + c.kosten +
     "</th><th class='num'>" + c.abschlag + "</th><th class='num'>" + c.verrechnung + "</th></tr>";
   const tbody = filtered.map(r =>
-    "<tr><td>" + r.monthLabel + "</td><td class='num'>" + fmtKwh(r.verbrauch) + "</td><td class='num'>" + fmtEur(r.kosten) +
+    "<tr><td>" + r.monthLabel + "</td><td class='num'>" + fmtKwh(r.verbrauch) + "</td><td class='num'>" + fmtCt(r.priceNet) +
+    "</td><td class='num'>" + fmtCt(r.priceGross) + "</td><td class='num'>" + fmtEur(r.kosten) +
     "</td><td class='num'>" + fmtEur(r.abschlag) + "</td><td class='num'>" + fmtEur(r.verrechnung) + "</td></tr>"
   ).join('');
-  const tfoot = "<tr><td>" + t().total + "</td><td class='num'>" + fmtKwh(tV) + "</td><td class='num'>" + fmtEur(tK) +
+  const tfoot = "<tr><td>" + t().total + "</td><td class='num'>" + fmtKwh(tV) + "</td><td class='num'>" + fmtCt(tPn) +
+    "</td><td class='num'>" + fmtCt(tPg) + "</td><td class='num'>" + fmtEur(tK) +
     "</td><td class='num'>" + fmtEur(tA) + "</td><td class='num'>" + fmtEur(tR) + "</td></tr>";
   document.getElementById('monthlyTable').innerHTML = "<thead>" + thead + "</thead><tbody>" + tbody + "</tbody><tfoot>" + tfoot + "</tfoot>";
 }

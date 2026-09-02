@@ -169,25 +169,33 @@
     });
     y = doc.lastAutoTable.finalY + 8;
 
-    // Main data table
+    // Main data table. Beyond five columns the default 9pt/3mm cells no longer
+    // fit the portrait page width, so the type and padding tighten a step.
+    const colCount = (data.tableHead || []).length;
+    const wideTable = colCount > 5;
+    const numericCols = {};
+    for (let i = 1; i < colCount; i++) numericCols[i] = { halign: 'right' };
+
     doc.autoTable({
       startY: y,
       margin: tableMargin,
       head: [data.tableHead],
       body: data.tableRows,
       foot: [data.tableFoot],
-      styles: { fontSize: 9, cellPadding: 3 },
+      styles: { fontSize: wideTable ? 7.5 : 9, cellPadding: wideTable ? 2 : 3 },
       headStyles: { fillColor: COLOR.ink, textColor: 255 },
       footStyles: { fillColor: COLOR.bgSoft, textColor: COLOR.ink, fontStyle: 'bold' },
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
-      // columnStyles' halign is not honored for the "foot" section in this
-      // jsPDF-AutoTable build, so the TOTAL row silently falls back to
-      // left-aligned text while the body stays right-aligned — the totals
-      // end up several columns to the left of where they should sit.
-      // Forcing halign per-cell here (didParseCell fires for every section,
-      // including foot) fixes the misalignment.
+      // Every column but the first holds a number, and the table has grown
+      // from five columns to seven, so the alignment is derived from the
+      // actual header rather than listed by hand.
+      columnStyles: numericCols,
+      // columnStyles' halign is only honored for the "body" section in this
+      // jsPDF-AutoTable build, so the header labels and the TOTAL row fall
+      // back to left-aligned while the values above them are right-aligned.
+      // didParseCell fires for every section, so aligning here covers head,
+      // body and foot alike and keeps each numeric column flush right.
       didParseCell: (hookData) => {
-        if (hookData.section === 'foot' && hookData.column.index >= 1) {
+        if (hookData.column.index >= 1) {
           hookData.cell.styles.halign = 'right';
         }
       },

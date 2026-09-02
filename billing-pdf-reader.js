@@ -203,6 +203,18 @@ function fmt(n) {
 function fmtKwh(n) { return n === null || n === undefined ? '' : fmt(n) + ' kWh'; }
 function fmtEur(n) { return n === null || n === undefined ? '' : fmt(n) + ' €'; }
 function fmtCt(n) { return n === null || n === undefined ? '' : fmt(n) + ' ct/kWh'; }
+// A price is an average, not a sum, so a TOTAL row weights each month's price
+// by that month's consumption. Months with no parsed price are left out of
+// both sides of the average instead of counting as zero. Used by both the
+// on-page Monthly Breakdown and the pop-out report.
+function weightedPrice(rows, field) {
+  let num = 0, den = 0;
+  rows.forEach(r => {
+    if (r[field] !== null && r[field] !== undefined && r.verbrauch) { num += r[field] * r.verbrauch; den += r.verbrauch; }
+  });
+  return den ? num / den : null;
+}
+
 function dateKey(d) {
   const m = (d || '').match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   return m ? m[3] + m[2] + m[1] : '';
@@ -526,18 +538,8 @@ function renderMonthlyBreakdown() {
     "<div class='kpi ok'><div class='label'>" + k.abschlag + "</div><div class='value' style='font-size:1.1rem'>" + fmt(Math.abs(tA)) + " €</div></div>" +
     "<div class='kpi " + (tR < -0.005 ? 'credit-val' : tR > 0.005 ? 'debt' : 'ok') + "'><div class='label'>" + k.net + "</div><div class='value' style='font-size:1.1rem'>" + fmt(tR) + " €</div></div>";
 
-  // A price is an average, not a sum, so the TOTAL row weights each month's
-  // price by that month's consumption. Months with no parsed price are left
-  // out of both sides of the average instead of counting as zero.
-  const weightedPrice = (field) => {
-    let num = 0, den = 0;
-    filtered.forEach(r => {
-      if (r[field] !== null && r[field] !== undefined && r.verbrauch) { num += r[field] * r.verbrauch; den += r.verbrauch; }
-    });
-    return den ? num / den : null;
-  };
-  const tPn = weightedPrice('priceNet');
-  const tPg = weightedPrice('priceGross');
+  const tPn = weightedPrice(filtered, 'priceNet');
+  const tPg = weightedPrice(filtered, 'priceGross');
 
   const c = tr.cols;
   const thead = "<tr><th>" + c.month + "</th><th class='num'>" + c.verbrauch + "</th><th class='num'>" + c.preisNet +
@@ -576,6 +578,8 @@ function downloadMonthlyPdf() {
   const tK = filtered.reduce((s, r) => s + (r.kosten || 0), 0);
   const tA = filtered.reduce((s, r) => s + (r.abschlag || 0), 0);
   const tR = filtered.reduce((s, r) => s + (r.verrechnung || 0), 0);
+  const tPnReport = weightedPrice(filtered, 'priceNet');
+  const tPgReport = weightedPrice(filtered, 'priceGross');
 
   const rangeLabel = filtered[0].monthLabel === filtered[filtered.length - 1].monthLabel
     ? filtered[0].monthLabel
@@ -617,9 +621,9 @@ function downloadMonthlyPdf() {
       { label: tr.monthly.kpi.abschlag, value: fmt(Math.abs(tA)) + ' €' },
       { label: tr.monthly.kpi.net, value: fmt(tR) + ' €' },
     ],
-    tableHead: [c.month, c.verbrauch, c.kosten, c.abschlag, c.verrechnung],
-    tableRows: filtered.map(r => [r.monthLabel, fmtKwh(r.verbrauch), fmtEur(r.kosten), fmtEur(r.abschlag), fmtEur(r.verrechnung)]),
-    tableFoot: [tr.total, fmtKwh(tV), fmtEur(tK), fmtEur(tA), fmtEur(tR)],
+    tableHead: [c.month, c.verbrauch, c.preisNet, c.preisGross, c.kosten, c.abschlag, c.verrechnung],
+    tableRows: filtered.map(r => [r.monthLabel, fmtKwh(r.verbrauch), fmtCt(r.priceNet), fmtCt(r.priceGross), fmtEur(r.kosten), fmtEur(r.abschlag), fmtEur(r.verrechnung)]),
+    tableFoot: [tr.total, fmtKwh(tV), fmtCt(tPnReport), fmtCt(tPgReport), fmtEur(tK), fmtEur(tA), fmtEur(tR)],
   };
 
   // Stash the data in localStorage (both pages are served from the same

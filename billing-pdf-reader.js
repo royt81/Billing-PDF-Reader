@@ -159,9 +159,36 @@ async function extractText(data) {
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
     const content = await page.getTextContent();
-    full += content.items.map(i => i.str).join(' ') + '\n';
+    full += pageText(content.items) + '\n';
   }
   return normalizeExtractedText(full);
+}
+
+// pdf.js returns one item per run of glyphs sharing a font, NOT one per word.
+// Joining items with a space is fine for the 2024 invoices but shreds the 2026
+// ones, where ligatures and umlauts are set from a second embedded font: there
+// "Effektiver" arrives as "E" + "ff" + "ektiver" and a naive join yields
+// "E ff ektiver", which no pattern below can match. Since these PDFs carry
+// their own space items, the items are concatenated as they come and a space is
+// only added where the geometry shows a real gap - a change of line, or
+// horizontal daylight between one item and the next. Fragments of the same word
+// sit flush against each other and so stay joined.
+const GAP_UNITS = 1;   // PDF units; a real space in these files is ~2.5 wide
+const LINE_UNITS = 1;  // vertical shift that counts as a new line
+function pageText(items) {
+  let out = '', prev = null;
+  for (const item of items) {
+    if (!item.str) {
+      if (item.hasEOL) { out += '\n'; prev = null; }
+      continue;
+    }
+    const x = item.transform[4], y = item.transform[5];
+    if (prev && (Math.abs(y - prev.y) > LINE_UNITS || x - (prev.x + prev.width) > GAP_UNITS)) out += ' ';
+    out += item.str;
+    prev = { x, y, width: item.width };
+    if (item.hasEOL) { out += '\n'; prev = null; }
+  }
+  return out;
 }
 
 const LIGATURES = { '\uFB00': 'ff', '\uFB01': 'fi', '\uFB02': 'fl', '\uFB03': 'ffi', '\uFB04': 'ffl', '\uFB05': 'st', '\uFB06': 'st' };
@@ -172,13 +199,25 @@ const LIGATURES = { '\uFB00': 'ff', '\uFB01': 'fi', '\uFB02': 'fl', '\uFB03': 'f
 // joined with spaces. Collapse that spacing back together so the regexes
 // below can match regardless of which template generated the PDF.
 function normalizeExtractedText(text) {
-  // Invoices generated from mid-2026 on encode "ff"/"fi"/"fl"/"ffi" as single
-  // ligature glyphs, so the extracted text literally reads "E\uFB00ektiver
-  // Arbeitspreis" and "Monatsau\uFB02istung". Every letter-based pattern below
-  // (and in parseMonthlyWorkPrices) misses those, while the number-based month
-  // rows still match - which is exactly how a month can show up with its
-  // consumption and costs but no price. Fold the ligatures back to plain
-  // letters first, and turn non-breaking spaces into ordinary ones.
+  // Invoices generated from mid-2026 on set ligatures ("ff", "fi", "fl") and
+  // umlauts from a second embedded font, so pdf.js hands each of those back as
+  // its own text item. extractText() joins items with a space, and the words
+  // arrive broken apart: "f \u00fc r", "E \uFB00 ektiver", "Monatsau \uFB02 istung".
+  // Folding the ligature glyph alone is not enough - the spaces around it have
+  // to go too, or "Effektiver Arbeitspreis" and "Monatsauflistung" never match.
+  //
+  // A split shows up as a SINGLE space next to one of those glyphs, while a real
+  // word gap in these files comes out as several spaces (the PDF's own space
+  // plus the ones the join adds). Requiring exactly one space is what keeps
+  // "gro\u00df   und" apart while still repairing "f \u00fc r".
+  let joined;
+  do {
+    joined = text;
+    text = text.replace(/([A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df\uFB00-\uFB06]) (?=[\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df\uFB00-\uFB06])/g, '$1')
+               .replace(/([\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df\uFB00-\uFB06]) (?=[A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df])/g, '$1');
+  } while (text !== joined);
+
+  // Only now are the ligatures safe to expand into their plain letters.
   text = text.replace(/[\uFB00-\uFB06]/g, ch => LIGATURES[ch] || ch).replace(/\u00a0/g, ' ');
   let prev;
   do {

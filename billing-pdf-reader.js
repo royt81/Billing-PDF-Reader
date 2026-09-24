@@ -9,11 +9,16 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
 // script tag in index.html, so "which build is this browser actually running?"
 // is answerable at a glance instead of from the console - a stale cached copy
 // is otherwise indistinguishable from a bug in the current one.
-const BUILD = 'v7';
+const BUILD = 'v9';
 
 let invoices = []; // one entry per parsed PDF
 let sortCol = 'periodFromKey', sortDir = 1;
 let lang = 'en';
+// Language of the PDF report, chosen separately from the page language: the
+// report goes to customers, so it defaults to German whatever the UI shows.
+// The last choice is remembered per browser (best effort only).
+let reportLang = 'de';
+try { const saved = localStorage.getItem('billingReportLang'); if (saved === 'en' || saved === 'de') reportLang = saved; } catch (_) { /* storage unavailable */ }
 let filterFrom = null, filterTo = null; // YYYYMM keys, null = full range
 let lastMonthKeys = ''; // tracks whether filter <select> options need rebuilding
 
@@ -49,7 +54,7 @@ const I18N = {
     endLabel: { Guthaben: 'Credit', Nachzahlung: 'Payment due' },
     monthly: {
       title: 'Monthly Breakdown', subtitle: 'Combines the per-month tables from every uploaded PDF, so periods can be filtered across files (e.g. isolate a calendar year).',
-      from: 'From', to: 'To', all: 'All', viewPdf: 'View PDF', downloadPdf: 'Download PDF',
+      from: 'From', to: 'To', all: 'All', viewPdf: 'View PDF', downloadPdf: 'Download PDF', reportLang: 'Report language',
       noData: 'No monthly tables were found in the uploaded PDF(s).',
       kpi: { months: 'Months in Range', consumption: 'Consumption', costs: 'Costs (brutto)', abschlag: 'Abschläge', net: 'Net Verrechnung' },
       cols: { month: 'Month', verbrauch: 'Consumption (kWh)', preisNet: 'Work price net (ct/kWh)', preisGross: 'Work price gross (ct/kWh)', kosten: 'Costs brutto (€)', abschlag: 'Abschlag (€)', verrechnung: 'Verrechnung (€)' },
@@ -123,7 +128,7 @@ const I18N = {
     endLabel: { Guthaben: 'Guthaben', Nachzahlung: 'Nachzahlung' },
     monthly: {
       title: 'Monatliche Aufschlüsselung', subtitle: 'Fasst die Monatstabellen aller hochgeladenen PDFs zusammen, damit Zeiträume dateiübergreifend gefiltert werden können (z.B. ein Kalenderjahr isolieren).',
-      from: 'Von', to: 'Bis', all: 'Alle', viewPdf: 'PDF anzeigen', downloadPdf: 'Als PDF herunterladen',
+      from: 'Von', to: 'Bis', all: 'Alle', viewPdf: 'PDF anzeigen', downloadPdf: 'Als PDF herunterladen', reportLang: 'Sprache des Berichts',
       noData: 'In den hochgeladenen PDF(s) wurden keine Monatstabellen gefunden.',
       kpi: { months: 'Monate im Zeitraum', consumption: 'Verbrauch', costs: 'Kosten (brutto)', abschlag: 'Abschläge', net: 'Saldo Verrechnung' },
       cols: { month: 'Monat', verbrauch: 'Verbrauch (kWh)', preisNet: 'Arbeitspreis netto (ct/kWh)', preisGross: 'Arbeitspreis brutto (ct/kWh)', kosten: 'Abrechnung (€)', abschlag: 'Abschlag (€)', verrechnung: 'Verrechnung (€)' },
@@ -185,6 +190,10 @@ function applyStaticTranslations() {
   document.getElementById('overviewLabel').textContent = tr.overview;
   document.getElementById('langToggle').textContent = lang === 'en' ? 'Deutsch' : 'English';
   document.getElementById('downloadMonthlyPdfBtnLabel').textContent = tr.monthly.viewPdf;
+  const rl = document.getElementById('reportLang');
+  rl.title = tr.monthly.reportLang;
+  rl.setAttribute('aria-label', tr.monthly.reportLang);
+  rl.value = reportLang;
 }
 
 const dz = document.getElementById('dropzone');
@@ -195,6 +204,10 @@ dz.addEventListener('drop',      e  => { e.preventDefault(); dz.classList.remove
 document.getElementById('fileInput').addEventListener('change', e => handleFiles(e.target.files));
 document.getElementById('exportBtn').addEventListener('click', exportExcel);
 document.getElementById('downloadMonthlyPdfBtn').addEventListener('click', downloadMonthlyPdf);
+document.getElementById('reportLang').addEventListener('change', e => {
+  reportLang = e.target.value === 'en' ? 'en' : 'de';
+  try { localStorage.setItem('billingReportLang', reportLang); } catch (_) { /* storage unavailable */ }
+});
 document.getElementById('resetBtn').addEventListener('click', resetApp);
 document.getElementById('addMoreBtn').addEventListener('click', () => document.getElementById('fileInput').click());
 document.getElementById('langToggle').addEventListener('click', () => {
@@ -1192,7 +1205,15 @@ document.getElementById('filterTo').addEventListener('change', e => { filterTo =
 // first. The "Download PDF" button on that page builds a real PDF file
 // with jsPDF (see billing-report.js) and saves it directly — no browser
 // print dialog involved.
+// The report is built in reportLang: every label below comes from t(), so the
+// page language is switched for the duration of the build and restored after.
 function downloadMonthlyPdf() {
+  const pageLang = lang;
+  lang = reportLang;
+  try { buildAndOpenReport(); } finally { lang = pageLang; }
+}
+
+function buildAndOpenReport() {
   const allMonths = getAllMonths();
   const filtered = allMonths.filter(m => m.key >= filterFrom && m.key <= filterTo);
   if (!filtered.length) return;
@@ -1267,7 +1288,11 @@ function downloadMonthlyPdf() {
   // report as a real static page. This replaces the extension-era
   // chrome.storage.session handoff.
   localStorage.setItem('billingReportData', JSON.stringify(reportData));
-  window.open('billing-report.html', '_blank');
+  // The version in the URL makes the browser fetch the current report page
+  // (and through its own ?v= the current billing-report.js) instead of a
+  // cached copy - otherwise a new reader can hand data to an old report page
+  // that silently drops what it does not know about.
+  window.open('billing-report.html?v=' + BUILD, '_blank');
 }
 
 function escapeHtml(str) {

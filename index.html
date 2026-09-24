@@ -152,6 +152,10 @@
         <select id="filterFrom" class="filter-select"></select>
         <label id="filterToLabel" for="filterTo">To</label>
         <select id="filterTo" class="filter-select"></select>
+        <select id="reportLang" class="filter-select" title="Sprache des Berichts">
+          <option value="de">Bericht: Deutsch</option>
+          <option value="en">Report: English</option>
+        </select>
         <button type="button" class="btn btn-green btn-sm" id="downloadMonthlyPdfBtn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="icon-sm">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
@@ -177,6 +181,6 @@
 <!-- ?v= is a cache-buster: GitHub Pages serves these files with a 10-minute
      max-age, so browsers keep running an old copy after a push. Bump the number
      whenever billing-pdf-reader.js changes and every user picks it up at once. -->
-<script src="billing-pdf-reader.js?v=7"></script>
+<script src="billing-pdf-reader.js?v=9"></script>
 </body>
 </html>

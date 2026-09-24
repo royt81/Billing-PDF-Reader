@@ -9,7 +9,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
 // script tag in index.html, so "which build is this browser actually running?"
 // is answerable at a glance instead of from the console - a stale cached copy
 // is otherwise indistinguishable from a bug in the current one.
-const BUILD = 'v6';
+const BUILD = 'v7';
 
 let invoices = []; // one entry per parsed PDF
 let sortCol = 'periodFromKey', sortDir = 1;
@@ -54,6 +54,45 @@ const I18N = {
       kpi: { months: 'Months in Range', consumption: 'Consumption', costs: 'Costs (brutto)', abschlag: 'Abschläge', net: 'Net Verrechnung' },
       cols: { month: 'Month', verbrauch: 'Consumption (kWh)', preisNet: 'Work price net (ct/kWh)', preisGross: 'Work price gross (ct/kWh)', kosten: 'Costs brutto (€)', abschlag: 'Abschlag (€)', verrechnung: 'Verrechnung (€)' },
     },
+    correction: {
+      title: 'Billing correction',
+      subtitle: 'Original bill vs. correction, month by month - and how the credit from the correction was offset against the amount still open from the original bill.',
+      heading: (inv, date, range) => 'Correction ' + inv + ' of ' + date + ' - corrects ' + range,
+      replaces: list => 'Replaces ' + list,
+      kpi: { orig: 'Originally billed', corr: 'Corrected costs', total: 'Result of the correction', net: 'After offsetting' },
+      compareTitle: 'Month by month: original vs. corrected',
+      cols: { month: 'Month', vOrig: 'Consumption original', vCorr: 'Consumption corrected', kOrig: 'Costs original', kCorr: 'Costs corrected', diff: 'Difference', abschlag: 'Abschlag paid', verrechnung: 'Verrechnung corrected' },
+      stepsTitle: 'How it was settled',
+      s1: (inv, date) => 'Original bill ' + inv + ' of ' + date,
+      s1Missing: 'Original bill (not uploaded)',
+      origCosts: range => 'Costs billed ' + range,
+      origAbschlag: 'Abschläge already paid',
+      origEnd: 'Amount of the original bill',
+      s2: (inv, date) => 'Billing correction ' + inv + ' of ' + date,
+      reverse: range => 'Originally billed costs ' + range + ' reversed',
+      corrCosts: range => 'Corrected costs ' + range,
+      corrSubtotal: 'Result of the correction part',
+      regPayments: range => 'Abschläge paid ' + range,
+      regCosts: (range, kwh) => 'Consumption costs ' + range + (kwh ? ' (' + kwh + ')' : ''),
+      regSubtotal: 'Result of the further items',
+      corrTotal: 'Result according to the correction invoice',
+      s3: 'Offset against the amount open from the original bill',
+      openAmount: 'Open amount of the original bill',
+      net: 'Remaining after offsetting',
+      note: (faulty, abschlag, open, total, net) => 'The correction invoice treats the full amount of the wrong bill (' + faulty + ') as already invoiced - that is the Abschläge paid (' + abschlag + ') plus the amount of the original bill (' + open + '). If that amount was still open, it is first offset against the result of the correction (' + total + '), leaving ' + net + '. If it had already been paid, the result of the correction applies in full.',
+      missingOrig: 'The original bill was not uploaded. Its costs are taken from the correction; the Abschläge paid and the amount still open are unknown - upload the original bill as well for the full settlement.',
+      partialOrig: (inv, range) => 'Only ' + range + ' of bill ' + inv + ' was corrected, so its total amount cannot be offset one-to-one.',
+      mismatch: (a, b) => 'Note: the items add up to ' + a + ', but the correction invoice states ' + b + '.',
+      badge: 'corrected',
+      badgeTitle: (inv, orig) => 'Corrected by ' + inv + '. Originally billed: ' + orig + '. Abschlag taken from the original bill.',
+      credit: 'credit', due: 'payment due',
+      words: n => (n < 0 ? 'a credit of ' : 'a payment due of ') + fmtEur(Math.abs(n)),
+      invCorrection: 'Correction',
+      invSuperseded: inv => 'replaced by ' + inv,
+      invPartly: (inv, range) => range + ' replaced by ' + inv,
+      notCounted: 'Replaced by the correction - not included in the totals',
+      tableNote: '* Changed by a billing correction - see the section "Billing correction" for original vs. corrected figures and the settlement.',
+    },
   },
   de: {
     title: 'Rechnungs-PDF-Leser',
@@ -88,6 +127,45 @@ const I18N = {
       noData: 'In den hochgeladenen PDF(s) wurden keine Monatstabellen gefunden.',
       kpi: { months: 'Monate im Zeitraum', consumption: 'Verbrauch', costs: 'Kosten (brutto)', abschlag: 'Abschläge', net: 'Saldo Verrechnung' },
       cols: { month: 'Monat', verbrauch: 'Verbrauch (kWh)', preisNet: 'Arbeitspreis netto (ct/kWh)', preisGross: 'Arbeitspreis brutto (ct/kWh)', kosten: 'Abrechnung (€)', abschlag: 'Abschlag (€)', verrechnung: 'Verrechnung (€)' },
+    },
+    correction: {
+      title: 'Abrechnungskorrektur',
+      subtitle: 'Ursprüngliche Abrechnung und Korrektur im Monatsvergleich - und wie die Gutschrift aus der Korrektur mit dem offenen Betrag der ursprünglichen Abrechnung verrechnet wurde.',
+      heading: (inv, date, range) => 'Korrektur ' + inv + ' vom ' + date + ' - korrigiert ' + range,
+      replaces: list => 'Ersetzt ' + list,
+      kpi: { orig: 'Ursprünglich abgerechnet', corr: 'Korrigierte Kosten', total: 'Ergebnis der Korrektur', net: 'Nach Verrechnung' },
+      compareTitle: 'Monatsvergleich: ursprünglich vs. korrigiert',
+      cols: { month: 'Monat', vOrig: 'Verbrauch ursprünglich', vCorr: 'Verbrauch korrigiert', kOrig: 'Kosten ursprünglich', kCorr: 'Kosten korrigiert', diff: 'Differenz', abschlag: 'Abschlag gezahlt', verrechnung: 'Verrechnung korrigiert' },
+      stepsTitle: 'So wurde verrechnet',
+      s1: (inv, date) => 'Ursprüngliche Abrechnung ' + inv + ' vom ' + date,
+      s1Missing: 'Ursprüngliche Abrechnung (nicht hochgeladen)',
+      origCosts: range => 'Abgerechnete Kosten ' + range,
+      origAbschlag: 'Bereits gezahlte Abschläge',
+      origEnd: 'Rechnungsbetrag der ursprünglichen Abrechnung',
+      s2: (inv, date) => 'Abrechnungskorrektur ' + inv + ' vom ' + date,
+      reverse: range => 'Rücknahme der ursprünglich abgerechneten Kosten ' + range,
+      corrCosts: range => 'Korrigierte Kosten ' + range,
+      corrSubtotal: 'Ergebnis der Korrektur',
+      regPayments: range => 'Gezahlte Abschläge ' + range,
+      regCosts: (range, kwh) => 'Verbrauchskosten ' + range + (kwh ? ' (' + kwh + ')' : ''),
+      regSubtotal: 'Ergebnis der weiteren Rechnungsposten',
+      corrTotal: 'Ergebnis laut Korrekturrechnung',
+      s3: 'Verrechnung mit dem offenen Betrag der ursprünglichen Abrechnung',
+      openAmount: 'Offener Rechnungsbetrag der ursprünglichen Abrechnung',
+      net: 'Verbleibender Betrag nach Verrechnung',
+      note: (faulty, abschlag, open, total, net) => 'Die Korrekturrechnung setzt den vollen Betrag der fehlerhaften Abrechnung (' + faulty + ') als bereits in Rechnung gestellt an - das sind die gezahlten Abschläge (' + abschlag + ') plus der Rechnungsbetrag der ursprünglichen Abrechnung (' + open + '). War dieser Betrag noch offen, wird er zuerst mit dem Ergebnis der Korrektur (' + total + ') verrechnet; es verbleibt ' + net + '. Wurde er bereits bezahlt, gilt das Ergebnis der Korrektur in voller Höhe.',
+      missingOrig: 'Die ursprüngliche Abrechnung wurde nicht hochgeladen. Ihre Kosten sind aus der Korrektur übernommen; gezahlte Abschläge und offener Betrag sind unbekannt - bitte die ursprüngliche Abrechnung zusätzlich hochladen.',
+      partialOrig: (inv, range) => 'Von der Abrechnung ' + inv + ' wurde nur ' + range + ' korrigiert, daher lässt sich ihr Rechnungsbetrag nicht eins zu eins verrechnen.',
+      mismatch: (a, b) => 'Hinweis: Die Einzelposten ergeben ' + a + ', die Korrekturrechnung weist ' + b + ' aus.',
+      badge: 'korrigiert',
+      badgeTitle: (inv, orig) => 'Korrigiert durch ' + inv + '. Ursprünglich abgerechnet: ' + orig + '. Abschlag aus der ursprünglichen Abrechnung übernommen.',
+      credit: 'Guthaben', due: 'Nachzahlung',
+      words: n => (n < 0 ? 'ein Guthaben von ' : 'eine Nachzahlung von ') + fmtEur(Math.abs(n)),
+      invCorrection: 'Korrektur',
+      invSuperseded: inv => 'ersetzt durch ' + inv,
+      invPartly: (inv, range) => range + ' ersetzt durch ' + inv,
+      notCounted: 'Durch die Korrektur ersetzt - nicht in den Summen enthalten',
+      tableNote: '* Durch eine Abrechnungskorrektur geändert - Gegenüberstellung ursprünglich/korrigiert und Verrechnung im Abschnitt "Abrechnungskorrektur".',
     },
   },
 };
@@ -384,6 +462,110 @@ function parseStromrechnungMonths(text) {
   return rows.sort((a, b) => a.key.localeCompare(b.key));
 }
 
+// ---------------------------------------------------------------------------
+// Abrechnungskorrektur
+// ---------------------------------------------------------------------------
+// A correction ("ABRECHNUNGSKORREKTUR") uses the Stromrechnung layout, but its
+// first page has two blocks:
+//   * the correction itself: "Ihre Zahlungen – (fehlerhafte Abrechnungen)"
+//     (what the wrong bill charged), minus "Korrigierte Abrechnungen" (the
+//     corrected costs), giving a first Zwischensumme;
+//   * "WEITERE RECHNUNGSPOSTEN": an ordinary bill for the months after the
+//     corrected period (Abschläge paid vs. consumption), second Zwischensumme.
+// The corrected months print no Abschlag of their own - those were already
+// settled in the wrong bill - so the months have to be merged with the
+// original bill rather than replacing it (see buildLedger()).
+const NUM = '-?\\d{1,3}(?:\\.\\d{3})*,\\d{2}'; // "1.662,08" / "-344,98" - never a year
+function isCorrectionText(text) { return /ABRECHNUNGSKORREKTUR/.test(text); }
+
+function monthKeyOf(name, year) {
+  const idx = MONTHS_DE.indexOf(name.replace(/\s+/g, ''));
+  return idx < 0 ? null : year + String(idx + 1).padStart(2, '0');
+}
+
+function parseCorrection(text) {
+  if (!isCorrectionText(text)) return null;
+  const monthAlt = MONTHS_DE.map(loosePattern).join('|');
+  const monthRe = '(' + monthAlt + ')\\s+(20\\d{2})';
+  // "Oktober 2025 - Februar 2026" as two whole-month captures.
+  const rangeRe = '((?:' + monthAlt + ')\\s+20\\d{2})\\s*[-–]\\s*((?:' + monthAlt + ')\\s+20\\d{2})';
+
+  // Summary page: from the heading to the start of the detail pages.
+  const start = text.search(/ABRECHNUNGSKORREKTUR/);
+  let end = text.search(/Ihre\s+Abrechnungskorrektur\s+im\s+Detail/);
+  if (end < start) end = start + 4000;
+  const summary = text.slice(start, end);
+  const amt = (re, src) => { const m = (src || summary).match(re); return m ? pn(m[m.length - 1]) : null; };
+  const period = re => { const m = summary.match(re); return m ? (m[1] + ' - ' + m[2]).replace(/\s+/g, ' ') : ''; };
+
+  const faultyTotal    = amt(new RegExp('fehlerhafte\\s+Abrechnungen\\)[\\s\\S]*?(' + NUM + ')\\s*€'));
+  const correctedTotal = amt(new RegExp('Korrigierte\\s+Abrechnungen[\\s\\S]*?(' + NUM + ')\\s*€'));
+  const faultyPeriod   = period(new RegExp('fehlerhafte\\s+Abrechnungen\\)[\\s\\S]*?Zeitraum:\\s*' + rangeRe));
+
+  // Zwischensummen, in print order: correction first, weitere Posten second.
+  // "(Erstattung)" is money back to the customer, stored negative like every
+  // other credit in this tool; "(Nachzahlung)" stays positive.
+  const subs = [];
+  const subRe = new RegExp('Zwischensumme\\s+von\\s*\\(?\\s*(Erstattung|Nachzahlung)?\\s*\\)?\\s*(' + NUM + ')\\s*€', 'g');
+  let s;
+  while ((s = subRe.exec(summary)) !== null) {
+    const v = Math.abs(pn(s[2]));
+    subs.push(s[1] === 'Nachzahlung' ? v : s[1] === 'Erstattung' ? -v : null);
+  }
+
+  const regIdx = summary.search(/WEITERE\s+RECHNUNGSPOSTEN/);
+  const regular = regIdx < 0 ? null : (() => {
+    const part = summary.slice(regIdx);
+    const pay  = part.match(new RegExp('Ihre\\s+Zahlungen\\s+im\\s+Rechnungszeitraum\\s*(?:Abschläge:\\s*' + rangeRe + ')?[\\s\\S]*?(' + NUM + ')\\s*€'));
+    const cons = part.match(new RegExp('Ihr\\s+Stromverbrauch\\s*\\(([\\d.,]+)\\s*kWh\\)\\s*in\\s+Euro[\\s\\S]*?(' + NUM + ')\\s*€'));
+    return {
+      payments: pay ? Math.abs(pn(pay[pay.length - 1])) : null,
+      period: pay && pay[1] ? (pay[1] + ' - ' + pay[2]).replace(/\s+/g, ' ') : '',
+      verbrauch: cons ? pn(cons[1]) : null,
+      costs: cons ? Math.abs(pn(cons[2])) : null,
+      subtotal: subs.length > 1 ? subs[1] : null,
+    };
+  })();
+
+  // Per-month costs of the wrong bill ("Ihre Zahlungen - (fehlerhafte
+  // Abrechnungen)" detail table) - used when the original PDF is not uploaded.
+  const faultyByKey = {};
+  const detail = text.match(/fehlerhafte\s+Abrechnungen\)\s*Monat\s+Kosten([\s\S]*?)Gesamt/);
+  if (detail) {
+    const rowRe = new RegExp(monthRe + '\\s+(' + NUM + ')\\s*€', 'g');
+    let r;
+    while ((r = rowRe.exec(detail[1])) !== null) {
+      const key = monthKeyOf(r[1], r[2]);
+      if (key) faultyByKey[key] = pn(r[3]);
+    }
+  }
+
+  // Months marked "Korrektur" on their detail page, plus anything listed in
+  // the wrong-bill table - either alone identifies the corrected months.
+  const keys = new Set(Object.keys(faultyByKey));
+  const markRe = new RegExp('Stromrechnung\\s+im\\s+Detail\\s+' + monthRe + '\\s+Korrektur', 'g');
+  let k;
+  while ((k = markRe.exec(text)) !== null) {
+    const key = monthKeyOf(k[1], k[2]);
+    if (key) keys.add(key);
+  }
+
+  let correctionSubtotal = subs.length ? subs[0] : null;
+  if (correctionSubtotal === null && faultyTotal !== null && correctedTotal !== null) {
+    correctionSubtotal = Math.abs(correctedTotal) - Math.abs(faultyTotal);
+  }
+
+  return {
+    faultyTotal: faultyTotal === null ? null : Math.abs(faultyTotal),
+    correctedTotal: correctedTotal === null ? null : Math.abs(correctedTotal),
+    faultyPeriod,
+    correctionSubtotal,
+    regular,
+    faultyByKey,
+    correctedKeys: [...keys].sort(),
+  };
+}
+
 function parseInvoice(text, fileName) {
   const get = (re) => { const m = text.match(re); return m ? m[1].trim() : ''; };
 
@@ -440,12 +622,22 @@ function parseInvoice(text, fileName) {
     // "Ergibt eine Gutschrift von … 129,15 €" replaces "Rechnungsbetrag brutto".
     // A Gutschrift is stored negative, matching how the other templates print
     // a Guthaben, so the KPI colouring and the totals keep working.
-    const closing = text.match(/Ergibt eine\s+(Gutschrift|Nachzahlung)\s+von[^€]*?([\d.,-]+)\s*€/);
+    // A correction words it "Ergibt gesamt eine Gutschrift von …", so the
+    // "gesamt" is optional.
+    const closing = text.match(/Ergibt\s+(?:gesamt\s+)?eine\s+(Gutschrift|Nachzahlung)\s+von[^€]*?([\d.,-]+)\s*€/);
     if (closing) {
       endLabel  = closing[1] === 'Gutschrift' ? 'Guthaben' : 'Nachzahlung';
       endAmount = endLabel === 'Guthaben' ? -Math.abs(pn(closing[2])) : Math.abs(pn(closing[2]));
     }
   }
+
+  // Older templates print only a signed "Rechnungsbetrag brutto" with no word
+  // next to it; the sign still says which one it is.
+  if (!endLabel && endAmount !== null && Math.abs(endAmount) > 0.005) {
+    endLabel = endAmount > 0 ? 'Nachzahlung' : 'Guthaben';
+  }
+
+  const correction = stromrechnung ? parseCorrection(text) : null;
 
   // Average price per kWh (costs brutto / consumption), in ct/kWh
   const pricePerKwh = (kosten !== null && verbrauch) ? (kosten * 100 / verbrauch) : null;
@@ -463,12 +655,12 @@ function parseInvoice(text, fileName) {
     fileName, month, kundennummer, vertrag, rechnungRef, zaehler, malo, tarif, name,
     periodFrom, periodTo, periodFromKey: dateKey(periodFrom),
     verbrauch, kosten, abschlag, endLabel, endAmount, pricePerKwh,
-    invNumber, invDate, monthly,
+    invNumber, invDate, monthly, correction,
   };
 }
 
 function getSorted() {
-  const ok = invoices.filter(i => !i.error);
+  const ok = buildLedger().views;
   return [...ok].sort((a, b) => {
     const va = a[sortCol] ?? '';
     const vb = b[sortCol] ?? '';
@@ -487,9 +679,10 @@ function render() {
     (errored.length ? ' (' + errored.length + ' ' + tr.failed + ')' : '');
 
   renderAccountInfo(ok);
-  renderKpis(ok);
+  renderKpis(buildLedger().views);
   renderTable();
   renderMonthlyBreakdown();
+  renderCorrections();
 
   if (errored.length) {
     document.getElementById('errors').innerHTML = errored.map(e =>
@@ -499,10 +692,19 @@ function render() {
   }
 }
 
+// Customer details, each field taken from the first invoice that has it: a
+// correction PDF has no "Guten Tag <Name>" line, so relying on a single
+// invoice could drop the name depending on upload order.
+function mergedAccount(ok) {
+  if (!ok.some(r => r.name || r.vertrag || r.kundennummer)) return null;
+  const pick = f => (ok.find(r => r[f]) || {})[f] || '';
+  return { name: pick('name'), kundennummer: pick('kundennummer'), vertrag: pick('vertrag'), zaehler: pick('zaehler'), malo: pick('malo'), tarif: pick('tarif') };
+}
+
 function renderAccountInfo(ok) {
   const el = document.getElementById('accountInfo');
   if (!el) return;
-  const ref = ok.find(r => r.name || r.vertrag || r.kundennummer);
+  const ref = mergedAccount(ok);
   if (!ref) { el.innerHTML = ''; return; }
   const a = t().account;
   const items = [
@@ -518,9 +720,13 @@ function renderAccountInfo(ok) {
   ).join('');
 }
 
+// Takes the ledger's invoice views: consumption and costs of months that a
+// correction replaced are counted once, from the correction (effVerbrauch /
+// effKosten), while Abschläge and Rechnungsbeträge of every invoice count,
+// because the correction settles against them.
 function renderKpis(ok) {
-  const totalVerbrauch = ok.reduce((s, r) => s + (r.verbrauch || 0), 0);
-  const totalKosten    = ok.reduce((s, r) => s + (r.kosten || 0), 0);
+  const totalVerbrauch = ok.reduce((s, r) => s + (r.effVerbrauch || 0), 0);
+  const totalKosten    = ok.reduce((s, r) => s + (r.effKosten || 0), 0);
   const totalAbschlag  = ok.reduce((s, r) => s + Math.abs(r.abschlag || 0), 0);
   const totalEnd       = ok.reduce((s, r) => s + (r.endAmount || 0), 0);
   const gutCount  = ok.filter(r => r.endLabel === 'Guthaben').length;
@@ -559,20 +765,32 @@ function renderTable() {
   thead += '</tr>';
 
   const sorted = getSorted();
+  const ct = t().correction;
   const tbody = sorted.map(r => {
     const endCls = r.endLabel === 'Nachzahlung' ? 'badge-debt' : r.endLabel === 'Guthaben' ? 'badge-credit' : '';
-    return "<tr><td>" + (r.month || '') + "</td>" +
+    // A replaced invoice keeps its printed figures, struck through where the
+    // correction took over, with a note saying by which invoice.
+    const replaced = r.supersededBy && r.supersededBy.length;
+    const strike = v => replaced ? "<s title='" + escapeHtml(ct.notCounted) + "'>" + fmt(v) + '</s>' : fmt(v);
+    let note = '';
+    if (r.correction) note = "<span class='tag tag-corr'>" + ct.invCorrection + '</span>';
+    if (replaced) {
+      note += "<span class='tag tag-old'>" + escapeHtml(r.supersededFull
+        ? ct.invSuperseded(r.supersededBy.join(', '))
+        : ct.invPartly(r.supersededBy.join(', '), monthRangeLabel(r.supersededKeys))) + '</span>';
+    }
+    return "<tr" + (replaced ? " class='row-superseded'" : '') + "><td>" + (r.month || '') + note + "</td>" +
       "<td>" + (r.invNumber || '') + "</td>" +
       "<td>" + (r.invDate || '') + "</td>" +
-      "<td class='num'>" + fmt(r.verbrauch) + "</td>" +
+      "<td class='num'>" + strike(r.verbrauch) + "</td>" +
       "<td class='num'>" + fmt(r.pricePerKwh) + "</td>" +
-      "<td class='num'>" + fmt(r.kosten) + "</td>" +
+      "<td class='num'>" + strike(r.kosten) + "</td>" +
       "<td class='num'>" + fmt(r.abschlag) + "</td>" +
       "<td class='num " + endCls + "'>" + fmt(r.endAmount) + (r.endLabel ? ' (' + (t().endLabel[r.endLabel] || r.endLabel) + ')' : '') + "</td></tr>";
   }).join('');
 
-  const tV = sorted.reduce((s, r) => s + (r.verbrauch || 0), 0);
-  const tK = sorted.reduce((s, r) => s + (r.kosten || 0), 0);
+  const tV = sorted.reduce((s, r) => s + (r.effVerbrauch || 0), 0);
+  const tK = sorted.reduce((s, r) => s + (r.effKosten || 0), 0);
   const tA = sorted.reduce((s, r) => s + (r.abschlag || 0), 0);
   const tE = sorted.reduce((s, r) => s + (r.endAmount || 0), 0);
   const tPrice = tV ? (tK * 100 / tV) : null;
@@ -596,14 +814,279 @@ function renderTable() {
   });
 }
 
-// Combines the per-month rows from every parsed invoice into one sorted list.
-// If two files supply the same month (e.g. a duplicate/overlapping upload), the
-// later-parsed file wins rather than double-counting that month.
-function getAllMonths() {
+// Parsed invoices, minus failures and repeat uploads of the same invoice
+// number (the last upload wins), so nothing is counted twice.
+function uniqueInvoices() {
   const ok = invoices.filter(i => !i.error);
+  const seen = new Map();
+  ok.forEach((inv, i) => seen.set(inv.invNumber || ('#' + i), inv));
+  return [...seen.values()];
+}
+
+// Order in which invoices are applied month by month: by invoice date, so a
+// correction always lands on top of the bill it corrects no matter which file
+// was dropped in first. Undated invoices keep upload order, corrections last.
+function applicationOrder(list) {
+  return list.map((inv, i) => ({ inv, i })).sort((a, b) => {
+    const da = dateKey(a.inv.invDate), db = dateKey(b.inv.invDate);
+    if (da && db && da !== db) return da.localeCompare(db);
+    const ca = a.inv.correction ? 1 : 0, cb = b.inv.correction ? 1 : 0;
+    if (ca !== cb) return ca - cb;
+    return a.i - b.i;
+  }).map(x => x.inv);
+}
+
+// Combines the per-month rows from every parsed invoice into one month list
+// and works out which invoices a correction replaced.
+//   * An ordinary later invoice for the same month replaces the row.
+//   * A correction replaces consumption, prices and costs of the months it
+//     corrects, but keeps the Abschlag from the original bill - the correction
+//     prints none for those months because they were already paid - and keeps
+//     the original figures on the row (row.original) for the comparison view.
+function buildLedger() {
+  const list = uniqueInvoices();
   const byKey = new Map();
-  ok.forEach(inv => (inv.monthly || []).forEach(m => byKey.set(m.key, { ...m, fileName: inv.fileName })));
-  return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+  const corrections = [];
+  const hitsByInv = new Map(); // original invoice -> [{ key, by: correction invoice }]
+
+  applicationOrder(list).forEach(inv => {
+    const corrKeys = inv.correction ? new Set(inv.correction.correctedKeys) : null;
+    const entry = corrKeys ? { inv, months: [] } : null;
+    (inv.monthly || []).forEach(m => {
+      const base = { ...m, fileName: inv.fileName, invNumber: inv.invNumber, invDate: inv.invDate, sourceInv: inv };
+      if (!corrKeys || !corrKeys.has(m.key)) { byKey.set(m.key, base); return; }
+
+      const prev = byKey.get(m.key);
+      const original = prev ? {
+        verbrauch: prev.verbrauch, kosten: prev.kosten, abschlag: prev.abschlag, verrechnung: prev.verrechnung,
+        priceNet: prev.priceNet, priceGross: prev.priceGross,
+        invNumber: prev.invNumber, invDate: prev.invDate, inv: prev.sourceInv,
+      } : {
+        // Original bill not uploaded: the correction still states what that
+        // bill charged per month, but not what was paid against it.
+        verbrauch: null, kosten: inv.correction.faultyByKey[m.key] ?? null, abschlag: null, verrechnung: null,
+        priceNet: null, priceGross: null, invNumber: '', invDate: '', inv: null,
+      };
+      const abschlag = (m.abschlag !== null && m.abschlag !== undefined) ? m.abschlag : original.abschlag;
+      const row = {
+        ...base, abschlag,
+        verrechnung: m.kosten === null ? null : m.kosten + (abschlag || 0),
+        corrected: true, correctionInvNumber: inv.invNumber, correctionInvDate: inv.invDate, original,
+      };
+      byKey.set(m.key, row);
+      entry.months.push(row);
+      if (prev && prev.sourceInv) {
+        const hits = hitsByInv.get(prev.sourceInv) || [];
+        hits.push({ key: m.key, by: inv });
+        hitsByInv.set(prev.sourceInv, hits);
+      }
+    });
+    if (entry && entry.months.length) corrections.push(entry);
+  });
+
+  // Per-invoice view for the overview table and KPIs. A replaced invoice stays
+  // visible (the customer did receive it), but the consumption and costs of
+  // its corrected months no longer count - the correction's figures do. Its
+  // Abschläge and Rechnungsbetrag still count: those were really charged, and
+  // the correction settles against them.
+  const views = list.map(inv => {
+    const hits = hitsByInv.get(inv) || [];
+    const hitKeys = new Set(hits.map(h => h.key));
+    const own = inv.monthly || [];
+    const lost = own.filter(m => hitKeys.has(m.key));
+    const full = own.length > 0 && lost.length === own.length;
+    const sum = f => lost.reduce((s, m) => s + (m[f] || 0), 0);
+    return {
+      ...inv,
+      supersededBy: [...new Set(hits.map(h => h.by.invNumber))],
+      supersededFull: full,
+      supersededKeys: [...hitKeys].sort(),
+      effVerbrauch: !hits.length ? inv.verbrauch : full ? 0 : (inv.verbrauch || 0) - sum('verbrauch'),
+      effKosten:    !hits.length ? inv.kosten    : full ? 0 : (inv.kosten || 0) - sum('kosten'),
+    };
+  });
+
+  const months = [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+  return { months, views, corrections };
+}
+
+function getAllMonths() { return buildLedger().months; }
+
+function monthLabelOf(key) { return MONTHS_DE[parseInt(key.slice(4), 10) - 1] + ' ' + key.slice(0, 4); }
+function monthRangeLabel(keys) {
+  if (!keys || !keys.length) return '';
+  const sorted = [...keys].sort();
+  const a = sorted[0], b = sorted[sorted.length - 1];
+  return a === b ? monthLabelOf(a) : monthLabelOf(a) + ' – ' + monthLabelOf(b);
+}
+// Sum that stays null if any part is unknown, so a missing figure never
+// silently turns into a wrong total.
+function sumKnown(rows, get) {
+  let s = 0;
+  for (const r of rows) { const v = get(r); if (v === null || v === undefined) return null; s += v; }
+  return s;
+}
+function withResult(n) {
+  if (n === null || n === undefined) return '';
+  const ct = t().correction;
+  return fmtEur(n) + (n < -0.005 ? ' (' + ct.credit + ')' : n > 0.005 ? ' (' + ct.due + ')' : '');
+}
+
+// Everything the page, the PDF report and the Excel export show for one
+// correction, as ready-made strings (plus the raw amounts for Excel), so all
+// three always say the same thing. Sign convention throughout: positive = the
+// customer pays, negative = credit for the customer.
+function buildCorrectionView(entry, views) {
+  const ct = t().correction;
+  const inv = entry.inv, c = inv.correction, months = entry.months;
+  const keys = months.map(m => m.key);
+  const range = monthRangeLabel(keys);
+  const warnings = [];
+
+  // --- Month-by-month comparison -------------------------------------------
+  const diffOf = m => (m.kosten === null || m.original.kosten === null) ? null : m.kosten - m.original.kosten;
+  const compareRows = months.map(m => [
+    m.monthLabel, fmtKwh(m.original.verbrauch), fmtKwh(m.verbrauch), fmtEur(m.original.kosten), fmtEur(m.kosten),
+    fmtEur(diffOf(m)), fmtEur(m.abschlag), fmtEur(m.verrechnung),
+  ]);
+  const origKosten = sumKnown(months, m => m.original.kosten);
+  const corrKosten = sumKnown(months, m => m.kosten);
+  const compareFoot = [
+    t().total, fmtKwh(sumKnown(months, m => m.original.verbrauch)), fmtKwh(sumKnown(months, m => m.verbrauch)),
+    fmtEur(origKosten), fmtEur(corrKosten), fmtEur(sumKnown(months, diffOf)),
+    fmtEur(sumKnown(months, m => m.abschlag)), fmtEur(sumKnown(months, m => m.verrechnung)),
+  ];
+
+  // --- Settlement steps ----------------------------------------------------
+  const steps = [];
+  const add = (kind, label, amount, value) => steps.push({ kind, label, amount: amount ?? null, value: value !== undefined ? value : fmtEur(amount) });
+  let n = 0;
+
+  // 1. The original bill(s) behind the corrected months.
+  const groups = new Map();
+  months.forEach(m => {
+    const id = m.original.invNumber || '';
+    if (!groups.has(id)) groups.set(id, { invNumber: id, invDate: m.original.invDate, inv: m.original.inv, months: [] });
+    groups.get(id).months.push(m);
+  });
+  const origs = [...groups.values()];
+  let openAmount = 0, openKnown = true, origAbschlag = 0;
+  origs.forEach(g => {
+    n++;
+    const gKeys = g.months.map(m => m.key);
+    const gKosten = sumKnown(g.months, m => m.original.kosten);
+    if (!g.inv) {
+      add('section', n + '. ' + ct.s1Missing);
+      add('item', ct.origCosts(monthRangeLabel(gKeys)), gKosten);
+      warnings.push(ct.missingOrig);
+      openKnown = false;
+      return;
+    }
+    const gAbschlag = sumKnown(g.months, m => m.original.abschlag);
+    add('section', n + '. ' + ct.s1(g.invNumber, g.invDate));
+    add('item', ct.origCosts(monthRangeLabel(gKeys)), gKosten);
+    add('item', ct.origAbschlag, gAbschlag);
+    origAbschlag += gAbschlag || 0;
+    const view = views.find(v => v.invNumber === g.invNumber);
+    if (view && view.supersededFull && g.inv.endAmount !== null) {
+      add('subtotal', ct.origEnd, g.inv.endAmount, withResult(g.inv.endAmount));
+      openAmount += g.inv.endAmount;
+    } else {
+      warnings.push(ct.partialOrig(g.invNumber, monthRangeLabel(gKeys)));
+      openKnown = false;
+    }
+  });
+
+  // 2. The correction invoice itself, in the same order it prints its items.
+  n++;
+  const faultyRange = c.faultyPeriod || range;
+  add('section', n + '. ' + ct.s2(inv.invNumber, inv.invDate));
+  const faulty = c.faultyTotal !== null ? c.faultyTotal : origKosten;
+  const corrected = c.correctedTotal !== null ? c.correctedTotal : corrKosten;
+  if (faulty !== null) add('item', ct.reverse(faultyRange), -faulty);
+  if (corrected !== null) add('item', ct.corrCosts(faultyRange), corrected);
+  const corrSub = c.correctionSubtotal !== null ? c.correctionSubtotal
+    : (faulty !== null && corrected !== null ? corrected - faulty : null);
+  if (corrSub !== null) add('subtotal', ct.corrSubtotal, corrSub, withResult(corrSub));
+  const reg = c.regular;
+  if (reg && (reg.payments !== null || reg.costs !== null)) {
+    if (reg.payments !== null) add('item', ct.regPayments(reg.period), -reg.payments);
+    if (reg.costs !== null) add('item', ct.regCosts(reg.period, reg.verbrauch !== null ? fmtKwh(reg.verbrauch) : ''), reg.costs);
+    const regSub = reg.subtotal !== null ? reg.subtotal
+      : (reg.payments !== null && reg.costs !== null ? reg.costs - reg.payments : null);
+    if (regSub !== null) add('subtotal', ct.regSubtotal, regSub, withResult(regSub));
+  }
+  const total = inv.endAmount;
+  if (total !== null) add('total', ct.corrTotal, total, withResult(total));
+  const calc = (corrSub || 0) + ((reg && reg.subtotal) || 0);
+  if (total !== null && corrSub !== null && Math.abs(calc - total) > 0.02) warnings.push(ct.mismatch(fmtEur(calc), fmtEur(total)));
+
+  // 3. Offsetting the correction's result against what the original bill left open.
+  let net = null, note = '';
+  if (openKnown && total !== null) {
+    n++;
+    net = openAmount + total;
+    add('section', n + '. ' + ct.s3);
+    add('item', ct.openAmount, openAmount, withResult(openAmount));
+    add('item', ct.corrTotal, total, withResult(total));
+    add('result', ct.net, net, withResult(net));
+    if (openAmount > 0.005 && faulty !== null) {
+      note = ct.note(fmtEur(faulty), fmtEur(Math.abs(origAbschlag)), fmtEur(openAmount), ct.words(total), ct.words(net));
+    }
+  }
+
+  const replaced = origs.filter(g => g.invNumber).map(g => g.invNumber + (g.invDate ? ' (' + g.invDate + ')' : ''));
+  return {
+    keys,
+    title: ct.heading(inv.invNumber, inv.invDate, range),
+    subtitle: replaced.length ? ct.replaces(replaced.join(', ')) : '',
+    kpis: [
+      { label: ct.kpi.orig, value: fmtEur(faulty), amount: faulty },
+      { label: ct.kpi.corr, value: fmtEur(corrected), amount: corrected },
+      { label: ct.kpi.total, value: withResult(total), amount: total },
+    ].concat(net !== null ? [{ label: ct.kpi.net, value: withResult(net), amount: net, highlight: true }] : []),
+    compareTitle: ct.compareTitle,
+    compareHead: [ct.cols.month, ct.cols.vOrig, ct.cols.vCorr, ct.cols.kOrig, ct.cols.kCorr, ct.cols.diff, ct.cols.abschlag, ct.cols.verrechnung],
+    compareRows, compareFoot,
+    stepsTitle: ct.stepsTitle,
+    steps, note, warnings,
+  };
+}
+
+function getCorrectionViews(filterKeys) {
+  const ledger = buildLedger();
+  return ledger.corrections
+    .filter(e => !filterKeys || e.months.some(m => filterKeys(m.key)))
+    .map(e => buildCorrectionView(e, ledger.views));
+}
+
+function renderCorrections() {
+  const card = document.getElementById('correctionCard');
+  if (!card) return;
+  const ct = t().correction;
+  const list = getCorrectionViews();
+  document.getElementById('correctionTitleText').textContent = ct.title;
+  document.getElementById('correctionSubtitleText').textContent = ct.subtitle;
+  if (!list.length) { card.style.display = 'none'; document.getElementById('correctionBody').innerHTML = ''; return; }
+  card.style.display = '';
+  const e = escapeHtml;
+  const table = (head, rows, foot) =>
+    "<div class='table-wrap'><table><thead><tr>" + head.map((h, i) => "<th" + (i ? " class='num'" : '') + '>' + e(h) + '</th>').join('') + '</tr></thead><tbody>' +
+    rows.map(r => '<tr>' + r.map((v, i) => '<td' + (i ? " class='num'" : '') + '>' + e(v) + '</td>').join('') + '</tr>').join('') +
+    '</tbody>' + (foot ? '<tfoot><tr>' + foot.map((v, i) => '<td' + (i ? " class='num'" : '') + '>' + e(v) + '</td>').join('') + '</tr></tfoot>' : '') + '</table></div>';
+  document.getElementById('correctionBody').innerHTML = list.map(v =>
+    "<div class='corr-block'>" +
+      "<div class='corr-head'><div class='corr-title'>" + e(v.title) + '</div>' + (v.subtitle ? "<div class='corr-sub'>" + e(v.subtitle) + '</div>' : '') + '</div>' +
+      v.warnings.map(w => "<div class='corr-warn'>" + e(w) + '</div>').join('') +
+      "<div class='corr-kpis'>" + v.kpis.map(k => "<div class='kpi " + (k.highlight ? (k.amount < -0.005 ? 'credit-val' : k.amount > 0.005 ? 'debt' : 'ok') : 'neutral') + "'><div class='label'>" + e(k.label) + "</div><div class='value' style='font-size:1.1rem'>" + e(k.value) + '</div></div>').join('') + '</div>' +
+      "<div class='corr-section-title'>" + e(v.compareTitle) + '</div>' +
+      table(v.compareHead, v.compareRows, v.compareFoot) +
+      "<div class='corr-section-title'>" + e(v.stepsTitle) + '</div>' +
+      "<table class='corr-steps'><tbody>" + v.steps.map(s =>
+        "<tr class='step-" + s.kind + "'><td>" + e(s.label) + "</td><td class='num'>" + (s.kind === 'section' ? '' : e(s.value)) + '</td></tr>').join('') + '</tbody></table>' +
+      (v.note ? "<div class='corr-note'>" + e(v.note) + '</div>' : '') +
+    '</div>'
+  ).join('');
 }
 
 function renderMonthlyBreakdown() {
@@ -687,8 +1170,11 @@ function renderMonthlyBreakdown() {
   const thead = "<tr><th>" + c.month + "</th><th class='num'>" + c.verbrauch + "</th><th class='num'>" + c.preisNet +
     "</th><th class='num'>" + c.preisGross + "</th><th class='num'>" + c.kosten +
     "</th><th class='num'>" + c.abschlag + "</th><th class='num'>" + c.verrechnung + "</th></tr>";
+  const ctm = t().correction;
   const tbody = filtered.map(r =>
-    "<tr><td>" + r.monthLabel + "</td><td class='num'>" + fmtKwh(r.verbrauch) + "</td><td class='num'>" + fmtCt(r.priceNet) +
+    "<tr><td>" + r.monthLabel + (r.corrected
+      ? " <span class='tag tag-corr' title='" + escapeHtml(ctm.badgeTitle(r.correctionInvNumber, fmtEur(r.original.kosten))) + "'>" + ctm.badge + '</span>'
+      : '') + "</td><td class='num'>" + fmtKwh(r.verbrauch) + "</td><td class='num'>" + fmtCt(r.priceNet) +
     "</td><td class='num'>" + fmtCt(r.priceGross) + "</td><td class='num'>" + fmtEur(r.kosten) +
     "</td><td class='num'>" + fmtEur(r.abschlag) + "</td><td class='num'>" + fmtEur(r.verrechnung) + "</td></tr>"
   ).join('');
@@ -714,7 +1200,7 @@ function downloadMonthlyPdf() {
   const tr = t();
   const c = tr.monthly.cols;
   const ok = invoices.filter(i => !i.error);
-  const ref = ok.find(r => r.name || r.kundennummer);
+  const ref = mergedAccount(ok);
 
   const tV = filtered.reduce((s, r) => s + (r.verbrauch || 0), 0);
   const tK = filtered.reduce((s, r) => s + (r.kosten || 0), 0);
@@ -764,8 +1250,16 @@ function downloadMonthlyPdf() {
       { label: tr.monthly.kpi.net, value: fmt(tR) + ' €' },
     ],
     tableHead: [c.month, c.verbrauch, c.preisNet, c.preisGross, c.kosten, c.abschlag, c.verrechnung],
-    tableRows: filtered.map(r => [r.monthLabel, fmtKwh(r.verbrauch), fmtCt(r.priceNet), fmtCt(r.priceGross), fmtEur(r.kosten), fmtEur(r.abschlag), fmtEur(r.verrechnung)]),
+    tableRows: filtered.map(r => [r.monthLabel + (r.corrected ? ' *' : ''), fmtKwh(r.verbrauch), fmtCt(r.priceNet), fmtCt(r.priceGross), fmtEur(r.kosten), fmtEur(r.abschlag), fmtEur(r.verrechnung)]),
     tableFoot: [tr.total, fmtKwh(tV), fmtCt(tPnReport), fmtCt(tPgReport), fmtEur(tK), fmtEur(tA), fmtEur(tR)],
+    tableNote: filtered.some(r => r.corrected) ? tr.correction.tableNote : '',
+    corrections: getCorrectionViews(k => k >= filterFrom && k <= filterTo).map(v => ({
+      title: v.title, subtitle: v.subtitle, kpis: v.kpis.map(k => ({ label: k.label, value: k.value })),
+      compareTitle: v.compareTitle, compareHead: v.compareHead, compareRows: v.compareRows, compareFoot: v.compareFoot,
+      stepsTitle: v.stepsTitle, steps: v.steps.map(st => ({ kind: st.kind, label: st.label, value: st.kind === 'section' ? '' : st.value })),
+      note: v.note, warnings: v.warnings,
+    })),
+    correctionsHeading: tr.correction.title,
   };
 
   // Stash the data in localStorage (both pages are served from the same
@@ -783,40 +1277,73 @@ function escapeHtml(str) {
 }
 
 function exportExcel() {
-  const cols = ['Period', 'Invoice', 'Invoice Date', 'Consumption (kWh)', 'Ø Price (ct/kWh)', 'Costs brutto (€)', 'Abschlag (€)', 'Guthaben/Nachzahlung (€)', 'Type',
+  const ct = t().correction;
+  const cols = ['Period', 'Invoice', 'Invoice Date', 'Consumption (kWh)', 'Ø Price (ct/kWh)', 'Costs brutto (€)', 'Abschlag (€)', 'Guthaben/Nachzahlung (€)', 'Type', 'Status',
     'Customer', 'Kundennummer', 'Contract', 'Zählernummer', 'MaLo', 'Tarif', 'Period From', 'Period To', 'Source File'];
   const rows = [cols];
   for (const r of getSorted()) {
-    rows.push([r.month, r.invNumber, r.invDate, r.verbrauch, r.pricePerKwh, r.kosten, r.abschlag, r.endAmount, r.endLabel,
+    const status = r.supersededBy.length
+      ? (r.supersededFull ? ct.invSuperseded(r.supersededBy.join(', ')) : ct.invPartly(r.supersededBy.join(', '), monthRangeLabel(r.supersededKeys))) + ' - ' + ct.notCounted
+      : (r.correction ? ct.invCorrection : '');
+    rows.push([r.month, r.invNumber, r.invDate, r.verbrauch, r.pricePerKwh, r.kosten, r.abschlag, r.endAmount, r.endLabel, status,
       r.name, r.kundennummer, r.vertrag, r.zaehler, r.malo, r.tarif, r.periodFrom, r.periodTo, r.fileName]);
   }
-  const tD = getSorted().reduce((s, r) => s + (r.verbrauch || 0), 0);
-  const tK = getSorted().reduce((s, r) => s + (r.kosten || 0), 0);
+  // Totals count replaced months once (from the correction), like the page.
+  const tD = getSorted().reduce((s, r) => s + (r.effVerbrauch || 0), 0);
+  const tK = getSorted().reduce((s, r) => s + (r.effKosten || 0), 0);
   const tA = getSorted().reduce((s, r) => s + (r.abschlag || 0), 0);
   const tE = getSorted().reduce((s, r) => s + (r.endAmount || 0), 0);
   const tPrice = tD ? (tK * 100 / tD) : null;
-  rows.push(['TOTAL', '', '', tD, tPrice, tK, tA, tE, '', '', '', '', '', '', '', '', '', '']);
+  rows.push(['TOTAL', '', '', tD, tPrice, tK, tA, tE, '', '', '', '', '', '', '', '', '', '', '']);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = cols.map(() => ({ wch: 16 }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Billing Summary');
 
-  const monthCols = ['Month', 'Consumption (kWh)', 'Costs brutto (€)', 'Abschlag (€)', 'Verrechnung (€)', 'Source File'];
+  const monthCols = ['Month', 'Consumption (kWh)', 'Costs brutto (€)', 'Abschlag (€)', 'Verrechnung (€)', 'Source File',
+    'Corrected by', 'Original invoice', 'Original consumption (kWh)', 'Original costs (€)'];
   const monthRows = [monthCols];
   const allMonths = getAllMonths();
   for (const m of allMonths) {
-    monthRows.push([m.monthLabel, m.verbrauch, m.kosten, m.abschlag, m.verrechnung, m.fileName]);
+    monthRows.push([m.monthLabel, m.verbrauch, m.kosten, m.abschlag, m.verrechnung, m.fileName,
+      m.corrected ? m.correctionInvNumber : '', m.corrected ? m.original.invNumber : '',
+      m.corrected ? m.original.verbrauch : null, m.corrected ? m.original.kosten : null]);
   }
   if (allMonths.length) {
     const mV = allMonths.reduce((s, r) => s + (r.verbrauch || 0), 0);
     const mK = allMonths.reduce((s, r) => s + (r.kosten || 0), 0);
     const mA = allMonths.reduce((s, r) => s + (r.abschlag || 0), 0);
     const mR = allMonths.reduce((s, r) => s + (r.verrechnung || 0), 0);
-    monthRows.push(['TOTAL', mV, mK, mA, mR, '']);
+    monthRows.push(['TOTAL', mV, mK, mA, mR, '', '', '', null, null]);
     const wsMonthly = XLSX.utils.aoa_to_sheet(monthRows);
     wsMonthly['!cols'] = monthCols.map(() => ({ wch: 16 }));
     XLSX.utils.book_append_sheet(wb, wsMonthly, 'Monthly Detail');
+  }
+
+  // One block per correction: the month comparison and the settlement steps,
+  // exactly as shown on the page.
+  const corrViews = getCorrectionViews();
+  if (corrViews.length) {
+    const aoa = [];
+    corrViews.forEach(v => {
+      aoa.push([v.title]);
+      if (v.subtitle) aoa.push([v.subtitle]);
+      v.warnings.forEach(w => aoa.push([w]));
+      aoa.push([]);
+      aoa.push([v.compareTitle]);
+      aoa.push(v.compareHead);
+      v.compareRows.forEach(r => aoa.push(r));
+      aoa.push(v.compareFoot);
+      aoa.push([]);
+      aoa.push([v.stepsTitle]);
+      v.steps.forEach(st => aoa.push(st.kind === 'section' ? [st.label] : ['   ' + st.label, st.amount]));
+      if (v.note) { aoa.push([]); aoa.push([v.note]); }
+      aoa.push([]); aoa.push([]);
+    });
+    const wsCorr = XLSX.utils.aoa_to_sheet(aoa);
+    wsCorr['!cols'] = [{ wch: 70 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, wsCorr, 'Correction');
   }
 
   XLSX.writeFile(wb, 'billing_summary.xlsx');
@@ -831,6 +1358,8 @@ function resetApp() {
   document.getElementById('toolbar').style.display = 'none';
   document.getElementById('resultsCard').style.display = 'none';
   document.getElementById('monthlyCard').style.display = 'none';
+  document.getElementById('correctionCard').style.display = 'none';
+  document.getElementById('correctionBody').innerHTML = '';
   document.getElementById('fileInput').value = '';
   document.getElementById('status').textContent = '';
   ['kpis', 'invoiceTable', 'errors', 'monthlyKpis', 'monthlyTable', 'yearQuickBtns'].forEach(id => document.getElementById(id).innerHTML = '');

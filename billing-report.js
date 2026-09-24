@@ -78,6 +78,154 @@
     });
     tfootEl.innerHTML = '';
     tfootEl.appendChild(footRow);
+
+    document.getElementById('reportTableNote').textContent = data.tableNote || '';
+    renderCorrections(data);
+  }
+
+  // Billing corrections: one block per correction with its KPIs, the
+  // month-by-month comparison (original vs. corrected) and the settlement
+  // steps. Everything arrives as ready-made strings from billing-pdf-reader.js.
+  function renderCorrections(data) {
+    const host = document.getElementById('reportCorrections');
+    host.innerHTML = '';
+    const list = data.corrections || [];
+    if (!list.length) return;
+    host.appendChild(el('div', { className: 'corr-heading', textContent: data.correctionsHeading || '' }));
+    list.forEach((c) => {
+      const block = el('div', { className: 'corr-block' });
+      block.appendChild(el('div', { className: 'corr-title', textContent: c.title }));
+      if (c.subtitle) block.appendChild(el('div', { className: 'corr-sub', textContent: c.subtitle }));
+      (c.warnings || []).forEach((w) => block.appendChild(el('div', { className: 'corr-warn', textContent: w })));
+
+      const kpis = el('div', { className: 'kpis' });
+      (c.kpis || []).forEach((k) => {
+        const kpi = el('div', { className: 'kpi' });
+        kpi.appendChild(el('div', { className: 'label', textContent: k.label }));
+        kpi.appendChild(el('div', { className: 'value', textContent: k.value }));
+        kpis.appendChild(kpi);
+      });
+      block.appendChild(kpis);
+
+      block.appendChild(el('div', { className: 'corr-section-title', textContent: c.compareTitle }));
+      const table = el('table');
+      const thead = el('thead'), hr = el('tr');
+      c.compareHead.forEach((h, i) => hr.appendChild(el('th', { className: i ? 'num' : '', textContent: h })));
+      thead.appendChild(hr); table.appendChild(thead);
+      const tbody = el('tbody');
+      c.compareRows.forEach((r) => {
+        const tr = el('tr');
+        r.forEach((v, i) => tr.appendChild(el('td', { className: i ? 'num' : '', textContent: v })));
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      const tfoot = el('tfoot'), fr = el('tr');
+      c.compareFoot.forEach((v, i) => fr.appendChild(el('td', { className: i ? 'num' : '', textContent: v })));
+      tfoot.appendChild(fr); table.appendChild(tfoot);
+      block.appendChild(table);
+
+      block.appendChild(el('div', { className: 'corr-section-title', textContent: c.stepsTitle }));
+      const steps = el('table', { className: 'steps' });
+      const sb = el('tbody');
+      c.steps.forEach((s) => {
+        const tr = el('tr', { className: 'step-' + s.kind });
+        tr.appendChild(el('td', { textContent: s.label }));
+        tr.appendChild(el('td', { className: 'num', textContent: s.value || '' }));
+        sb.appendChild(tr);
+      });
+      steps.appendChild(sb);
+      block.appendChild(steps);
+      if (c.note) block.appendChild(el('div', { className: 'corr-note', textContent: c.note }));
+      host.appendChild(block);
+    });
+  }
+
+  // Same content as renderCorrections(), drawn into the jsPDF document.
+  function pdfCorrections(doc, data, startY, marginX, tableMargin) {
+    const list = data.corrections || [];
+    if (!list.length) return;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const textWidth = pageWidth - marginX * 2;
+    let y = startY;
+    const ensure = (h) => { if (y + h > pageHeight - 16) { doc.addPage(); y = 18; } };
+    const text = (str, size, style, color, gap) => {
+      doc.setFontSize(size);
+      doc.setFont(undefined, style);
+      doc.setTextColor.apply(doc, color);
+      const lines = doc.splitTextToSize(str, textWidth);
+      ensure(lines.length * size * 0.45 + 2);
+      doc.text(lines, marginX, y);
+      y += lines.length * size * 0.45 + (gap || 2);
+    };
+
+    // Each correction starts on a fresh page, so the comparison and the
+    // settlement read as one unit.
+    list.forEach((c, idx) => {
+      doc.addPage();
+      y = 18;
+      if (idx === 0 && data.correctionsHeading) text(data.correctionsHeading.toUpperCase(), 8.5, 'bold', COLOR.accent, 3);
+      text(c.title, 13, 'bold', COLOR.ink, 1.5);
+      if (c.subtitle) text(c.subtitle, 9, 'normal', COLOR.muted, 2);
+      (c.warnings || []).forEach((w) => text(w, 8.5, 'normal', [138, 90, 0], 2));
+
+      doc.autoTable({
+        startY: y + 2,
+        body: [c.kpis.map((k) => k.label.toUpperCase()), c.kpis.map((k) => k.value)],
+        theme: 'grid',
+        margin: tableMargin,
+        styles: { fontSize: 7.5, cellPadding: 3.5, lineColor: COLOR.border, lineWidth: 0.3 },
+        didParseCell: (h) => {
+          if (h.row.index === 0) { h.cell.styles.textColor = COLOR.muted; h.cell.styles.fontSize = 6.8; }
+          else { h.cell.styles.textColor = COLOR.ink; h.cell.styles.fontStyle = 'bold'; h.cell.styles.fontSize = 9.5; }
+        },
+      });
+      y = doc.lastAutoTable.finalY + 8;
+
+      text(c.compareTitle, 10, 'bold', COLOR.ink, 1);
+      doc.autoTable({
+        startY: y,
+        margin: tableMargin,
+        head: [c.compareHead],
+        body: c.compareRows,
+        foot: [c.compareFoot],
+        styles: { fontSize: 7, cellPadding: 1.6 },
+        // Month names and amounts stay on one line; only headers may wrap.
+        columnStyles: { 0: { minCellWidth: 24 }, 5: { minCellWidth: 19 } },
+        headStyles: { fillColor: COLOR.ink, textColor: 255 },
+        footStyles: { fillColor: COLOR.bgSoft, textColor: COLOR.ink, fontStyle: 'bold' },
+        didParseCell: (h) => { if (h.column.index >= 1) h.cell.styles.halign = 'right'; },
+      });
+      y = doc.lastAutoTable.finalY + 8;
+
+      text(c.stepsTitle, 10, 'bold', COLOR.ink, 1);
+      doc.autoTable({
+        startY: y,
+        margin: tableMargin,
+        body: c.steps.map((s) => [s.label, s.value || '']),
+        theme: 'plain',
+        styles: { fontSize: 8.5, cellPadding: { top: 1.4, bottom: 1.4, left: 2, right: 2 }, textColor: COLOR.ink },
+        columnStyles: { 1: { halign: 'right', cellWidth: 48 } },
+        didParseCell: (h) => {
+          const kind = c.steps[h.row.index].kind;
+          if (kind === 'section') { h.cell.styles.fontStyle = 'bold'; h.cell.styles.textColor = COLOR.accent; h.cell.styles.cellPadding = { top: 3.2, bottom: 1.2, left: 2, right: 2 }; }
+          if (kind === 'item' && h.column.index === 0) h.cell.styles.cellPadding = { top: 1.4, bottom: 1.4, left: 8, right: 2 };
+          if (kind === 'subtotal' || kind === 'total') h.cell.styles.fontStyle = 'bold';
+          if (kind === 'total' || kind === 'result') h.cell.styles.fillColor = COLOR.bgSoft;
+          if (kind === 'result') { h.cell.styles.fontStyle = 'bold'; h.cell.styles.fontSize = 9.5; }
+        },
+        didDrawCell: (h) => {
+          const kind = c.steps[h.row.index] && c.steps[h.row.index].kind;
+          if (h.section === 'body' && (kind === 'subtotal' || kind === 'total' || kind === 'result')) {
+            doc.setDrawColor.apply(doc, kind === 'result' ? COLOR.ink : COLOR.border);
+            doc.setLineWidth(kind === 'result' ? 0.5 : 0.3);
+            doc.line(h.cell.x, h.cell.y, h.cell.x + h.cell.width, h.cell.y);
+          }
+        },
+      });
+      y = doc.lastAutoTable.finalY + 6;
+      if (c.note) text(c.note, 8, 'normal', COLOR.muted, 2);
+    });
   }
 
   function buildPdf(data) {
@@ -183,12 +331,13 @@
       body: data.tableRows,
       foot: [data.tableFoot],
       styles: { fontSize: wideTable ? 7.5 : 9, cellPadding: wideTable ? 2 : 3 },
+      columnStyles: Object.assign({}, numericCols, { 0: { minCellWidth: 30 } }),
       headStyles: { fillColor: COLOR.ink, textColor: 255 },
       footStyles: { fillColor: COLOR.bgSoft, textColor: COLOR.ink, fontStyle: 'bold' },
       // Every column but the first holds a number, and the table has grown
       // from five columns to seven, so the alignment is derived from the
-      // actual header rather than listed by hand.
-      columnStyles: numericCols,
+      // actual header rather than listed by hand (set above, together with a
+      // minimum width that keeps "November 2025 *" on one line).
       // columnStyles' halign is only honored for the "body" section in this
       // jsPDF-AutoTable build, so the header labels and the TOTAL row fall
       // back to left-aligned while the values above them are right-aligned.
@@ -200,6 +349,15 @@
         }
       },
     });
+
+    if (data.tableNote) {
+      doc.setFontSize(7.5);
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor.apply(doc, COLOR.muted);
+      doc.text(doc.splitTextToSize(data.tableNote, pageWidth - marginX * 2), marginX, doc.lastAutoTable.finalY + 5);
+    }
+
+    pdfCorrections(doc, data, doc.lastAutoTable.finalY + 12, marginX, tableMargin);
 
     doc.save(data.filename + '.pdf');
   }

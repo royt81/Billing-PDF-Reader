@@ -68,6 +68,29 @@
     .year-btn{padding:5px 12px;border-radius:20px;border:1px solid #cdeede;background:white;color:#00855a;font-size:.8rem;font-weight:500;cursor:pointer}
     .year-btn:hover{background:#eafbf3}
     .year-btn.active{background:#00855a;color:white;border-color:#00855a}
+    /* Billing corrections */
+    .tag{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:10px;font-size:.7rem;font-weight:600;vertical-align:middle;white-space:nowrap}
+    .tag-corr{background:#fff4d6;color:#8a5a00;border:1px solid #f1d58a;cursor:help}
+    .tag-old{background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0}
+    tr.row-superseded td{color:#8a9a94}
+    #correctionBody{padding:4px 20px 20px}
+    .corr-block{padding-top:16px}
+    .corr-block+.corr-block{border-top:1px solid #e3efe9;margin-top:20px}
+    .corr-title{font-weight:600;font-size:.95rem;color:#1c3a2e}
+    .corr-sub{font-size:.8rem;color:#86a298;margin-top:2px}
+    .corr-warn{margin-top:10px;padding:8px 12px;border-radius:8px;background:#fff4d6;color:#8a5a00;font-size:.82rem}
+    .corr-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:16px;margin-top:14px;background:#eafbf3;border:1px solid #cdeede;border-radius:14px;padding:16px}
+    .corr-section-title{font-weight:600;font-size:.85rem;color:#1c3a2e;margin:18px 0 8px}
+    table.corr-steps{max-width:760px}
+    table.corr-steps td{white-space:normal;padding:6px 12px}
+    table.corr-steps td.num{white-space:nowrap}
+    table.corr-steps tr:nth-child(even){background:none}
+    table.corr-steps tr.step-section td{font-weight:600;color:#00855a;padding-top:14px;border-bottom:1px solid #cdeede}
+    table.corr-steps tr.step-item td:first-child{padding-left:28px}
+    table.corr-steps tr.step-subtotal td,table.corr-steps tr.step-total td{font-weight:600;border-top:1px solid #cdeede}
+    table.corr-steps tr.step-total td{background:#f3fbf7}
+    table.corr-steps tr.step-result td{font-weight:700;background:#eafbf3;color:#00855a;border-top:2px solid #00aa70}
+    .corr-note{margin-top:12px;max-width:760px;font-size:.8rem;color:#5a6f66;line-height:1.5}
 
   </style>
 </head>
@@ -141,11 +164,19 @@
     <div style="padding:16px 20px"><div id="monthlyKpis"></div></div>
     <div class="table-wrap"><table id="monthlyTable"></table></div>
   </div>
+
+  <div class="card" id="correctionCard" style="display:none">
+    <div class="card-header">
+      <span id="correctionTitleText">Billing correction</span>
+      <div class="card-sub" id="correctionSubtitleText"></div>
+    </div>
+    <div id="correctionBody"></div>
+  </div>
 </main>
 
 <!-- ?v= is a cache-buster: GitHub Pages serves these files with a 10-minute
      max-age, so browsers keep running an old copy after a push. Bump the number
      whenever billing-pdf-reader.js changes and every user picks it up at once. -->
-<script src="billing-pdf-reader.js?v=6"></script>
+<script src="billing-pdf-reader.js?v=7"></script>
 </body>
 </html>

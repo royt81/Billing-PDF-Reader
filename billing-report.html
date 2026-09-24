@@ -40,6 +40,24 @@
   tbody tr:nth-child(even){background:var(--bg-soft)}
   tfoot td{padding:9px 12px;font-weight:700;border-top:2px solid var(--ink);background:var(--bg-soft)}
   tfoot td.num{text-align:right}
+
+  .table-note{font-size:.75rem;color:var(--muted);margin-top:8px}
+  .corr-heading{font-size:1.15rem;font-weight:700;margin:34px 0 4px;padding-top:18px;border-top:2px solid var(--ink)}
+  .corr-block{margin-top:18px}
+  .corr-title{font-size:1rem;font-weight:700}
+  .corr-sub{font-size:.8rem;color:var(--muted);margin-top:2px}
+  .corr-warn{margin-top:10px;padding:8px 12px;border-radius:6px;background:#fff4d6;color:#8a5a00;font-size:.8rem}
+  .corr-block .kpis{margin:14px 0 18px}
+  .corr-section-title{font-size:.85rem;font-weight:700;margin:18px 0 8px}
+  table.steps td{padding:6px 12px;border-bottom:1px solid var(--border)}
+  table.steps tr:nth-child(even){background:none}
+  table.steps td.num{text-align:right;white-space:nowrap}
+  table.steps tr.step-section td{font-weight:700;color:var(--accent);padding-top:14px}
+  table.steps tr.step-item td:first-child{padding-left:28px}
+  table.steps tr.step-subtotal td,table.steps tr.step-total td{font-weight:700}
+  table.steps tr.step-total td{background:var(--bg-soft)}
+  table.steps tr.step-result td{font-weight:700;background:var(--bg-soft);border-top:2px solid var(--ink)}
+  .corr-note{font-size:.8rem;color:var(--muted);margin-top:10px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -60,9 +78,11 @@
     <tbody id="reportTbody"></tbody>
     <tfoot id="reportTfoot"></tfoot>
   </table>
+  <div class="table-note" id="reportTableNote"></div>
+  <div id="reportCorrections"></div>
   <script src="jspdf.umd.min.js"></script>
   <script src="jspdf.plugin.autotable.min.js"></script>
   <!-- Bump ?v= whenever billing-report.js changes - see the note in index.html. -->
-<script src="billing-report.js?v=3"></script>
+<script src="billing-report.js?v=4"></script>
 </body>
 </html>
